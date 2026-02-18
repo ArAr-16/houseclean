@@ -1,0 +1,30 @@
+/* Reset margins/padding */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Global font & layout */
+body {
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+
+/* App-level layout: sticky footer using flexbox */
+.App {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.main-content {
+  flex: 1 0 auto;
+}

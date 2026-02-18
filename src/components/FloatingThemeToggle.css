@@ -1,0 +1,59 @@
+.floating-theme-toggle {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f1b856 0%, #13829f 100%);
+  border: 2px solid #fff;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.floating-theme-toggle:hover {
+  transform: scale(1.1) translateY(-5px);
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.3);
+}
+
+.floating-theme-toggle:active {
+  transform: scale(0.95);
+}
+
+/* Dark Mode Styles */
+html.dark-mode .floating-theme-toggle {
+  background: linear-gradient(135deg, #f1b856 0%, #13829f 100%);
+  border-color: var(--border-color);
+  box-shadow: 0 4px 15px rgba(19, 130, 159, 0.4);
+}
+
+html.dark-mode .floating-theme-toggle:hover {
+  box-shadow: 0 6px 25px rgba(19, 130, 159, 0.5);
+}
+
+@media (max-width: 768px) {
+  .floating-theme-toggle {
+    bottom: 20px;
+    right: 20px;
+    width: 55px;
+    height: 55px;
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .floating-theme-toggle {
+    bottom: 15px;
+    right: 15px;
+    width: 50px;
+    height: 50px;
+    font-size: 1.1rem;
+  }
+}

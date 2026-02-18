@@ -1,0 +1,60 @@
+.about-us {
+  max-width: 800px;
+  margin: 3rem auto;
+  padding: 2rem;
+  background: #f9f9f9;
+  border-left: 6px solid #b95353;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.about-us h2 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: #13829f;
+  position: relative;
+}
+
+.about-us h2::after {
+  content: "";
+  display: block;
+  width: 60px;
+  height: 4px;
+  background: #b95353;
+  margin-top: 0.5rem;
+}
+
+.about-us p {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: #444;
+  margin-bottom: 1rem;
+}
+
+.about-us .brand {
+  color: #13829f;
+  font-weight: bold;
+  font-size: 1.2rem;
+}
+/* Dark Mode Styles */
+html.dark-mode .about-us {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-left-color: var(--accent-secondary);
+}
+
+html.dark-mode .about-us h2 {
+  color: var(--accent-primary);
+}
+
+html.dark-mode .about-us h2::after {
+  background: var(--accent-secondary);
+}
+
+html.dark-mode .about-us p {
+  color: var(--text-secondary);
+}
+
+html.dark-mode .about-us .brand {
+  color: var(--accent-primary);
+}
