@@ -1,25 +1,59 @@
 import React, { useState } from "react";
-import './Contact.css';
+import "./Contact.css";
+import { rtdb } from "../firebase";
+import { push, ref, serverTimestamp } from "firebase/database";
 
 function Contact() {
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    message: ''
+    name: "",
+    email: "",
+    message: "",
   });
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState("");
 
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Here you would typically send the form data to a server
-    alert('Thank you for your message! We will get back to you soon.');
-    setFormData({ name: '', email: '', message: '' });
+    if (sending) return;
+    setSending(true);
+    setFeedback("");
+    const payload = {
+      name: formData.name.trim(),
+      email: formData.email.trim(),
+      message: formData.message.trim(),
+      status: "unread",
+      createdAt: serverTimestamp(),
+    };
+    try {
+      // Save the inbound message and grab the key
+      const msgRef = await push(ref(rtdb, "ContactMessages"), payload);
+      // Add an admin notification entry linked to the message
+      await push(ref(rtdb, "AdminNotifications"), {
+        title: "New contact message",
+        body: `${payload.name || "Visitor"} sent a message`,
+        message: payload.message,
+        preview: payload.message.slice(0, 140),
+        email: payload.email,
+        name: payload.name,
+        status: "unread",
+        type: "contact",
+        messageId: msgRef.key,
+        createdAt: serverTimestamp(),
+      });
+      setFeedback("Thank you for your message! We'll get back to you soon.");
+      setFormData({ name: "", email: "", message: "" });
+    } catch (err) {
+      setFeedback(err.message || "Failed to send message. Please try again.");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -40,6 +74,7 @@ function Contact() {
         </div>
         <div className="contact-form">
           <h2>Send Us a Message</h2>
+          {feedback && <div className="alert-box">{feedback}</div>}
           <form onSubmit={handleSubmit}>
             <div className="form-group">
               <label htmlFor="name">Name</label>
@@ -73,7 +108,9 @@ function Contact() {
                 required
               ></textarea>
             </div>
-            <button type="submit" className="submit-msg">Send Message</button>
+            <button type="submit" className="submit-msg" disabled={sending}>
+              {sending ? "Sending..." : "Send Message"}
+            </button>
           </form>
         </div>
       </div>

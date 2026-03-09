@@ -21,6 +21,12 @@ function Navbar() {
         <button className="cssbuttons-io" onClick={() => navigate('/login')}>
           <span>Login</span>
         </button>
+<<<<<<< HEAD
+=======
+        {/* <button className="cssbuttons-io admin-temp" onClick={() => navigate('/admin')} style={{marginLeft: '10px', background:'#444'}}>
+          <span>Admin</span>
+        </button> */}
+>>>>>>> 7da15c4 (Updated full project)
       </div>
     </nav>
   );
