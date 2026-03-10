@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDt8RZjNpqOVSWrzVWjKE8AHeXbrkltynQ",
@@ -24,3 +25,4 @@ const secondaryApp =
 export const secondaryAuth = getAuth(secondaryApp);
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);
+export const functions = getFunctions(app);

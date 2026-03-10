@@ -1,8 +1,9 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import "../../components/Admin.css";
-import { rtdb, auth, secondaryAuth } from "../../firebase";
+import { rtdb, auth, secondaryAuth, functions } from "../../firebase";
 import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged } from "firebase/auth";
 import { ref, onValue, set, update as rtdbUpdate, remove } from "firebase/database";
+import { httpsCallable } from "firebase/functions";
 
 const sampleStaff = [
   {
@@ -216,11 +217,18 @@ function ManageUsers() {
     }
   };
 
-  const handleDelete = (id) => {
-    if (!window.confirm("Delete this staff profile?")) return;
-    setStaff((prev) => prev.filter((s) => s.id !== id));
-    if (selected?.id === id) setSelected(null);
-    remove(ref(rtdb, `Users/${id}`)).catch(() => {});
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this user account (Auth + Database)?")) return;
+    try {
+      const fn = httpsCallable(functions, "delete_user_account");
+      await fn({ uid: id });
+      setStaff((prev) => prev.filter((s) => s.id !== id));
+      if (selected?.id === id) setSelected(null);
+    } catch (err) {
+      // Fallback: at least remove the RTDB profile if the function isn't deployed yet.
+      remove(ref(rtdb, `Users/${id}`)).catch(() => {});
+      window.alert(err?.message || "Delete failed. Profile may not be fully removed.");
+    }
   };
 
   const validateForm = () => {
@@ -416,6 +424,41 @@ function ManageUsers() {
     .filter((s) => s.joined)
     .sort((a, b) => (b.joined || "").localeCompare(a.joined || ""))
     .slice(0, 6);
+
+  const normalizeRole = (value) => String(value || "").trim().toLowerCase();
+  const selectedRole = normalizeRole(selected?.role);
+  const selectedProfileType =
+    selectedRole === "admin"
+      ? "admin"
+      : ["housekeeper", "staff"].includes(selectedRole)
+        ? "housekeeper"
+        : "householder";
+
+  const selectedDisplayName = (() => {
+    const full = String(selected?.fullName || "").trim();
+    if (full) return full;
+    const first = String(selected?.firstName || "").trim();
+    const last = String(selected?.lastName || "").trim();
+    const joined = `${first} ${last}`.replace(/\s+/g, " ").trim();
+    return joined || String(selected?.email || "Unnamed");
+  })();
+
+  const selectedInitials = (selectedDisplayName || "NA")
+    .replace(/[^A-Za-z0-9 ]/g, "")
+    .trim()
+    .slice(0, 2)
+    .toUpperCase();
+
+  const selectedPhone = selected?.phone || selected?.contact || "-----";
+  const selectedLocation = (() => {
+    const parts = [
+      selected?.address,
+      selected?.barangay,
+      selected?.municipality,
+      selected?.province,
+    ].filter(Boolean);
+    return parts.join(", ") || selected?.barangay || "-----";
+  })();
 
   return (
     <div className="admin-page neo-admin">
@@ -963,19 +1006,37 @@ function ManageUsers() {
               <div className="profile-main">
                 <div className="profile-hero">
                   <div className="avatar-xl">
-                    {(selected.fullName || "NA").slice(0, 2).toUpperCase()}
+                    {selectedInitials}
                   </div>
                   <div className="hero-meta">
                     <div className="hero-top">
                       <div>
-                        <p className="eyebrow">Staff Profile</p>
-                        <h3 className="hero-title">{selected.fullName || "Unnamed"}</h3>
-                        <p className="hero-subtitle">{selected.preferredService || "Staff"}</p>
+                        <p className="eyebrow">
+                          {selectedProfileType === "admin"
+                            ? "Admin Profile"
+                            : selectedProfileType === "housekeeper"
+                              ? "Housekeeper Profile"
+                              : "Householder Profile"}
+                        </p>
+                        <h3 className="hero-title">{selectedDisplayName}</h3>
+                        <p className="hero-subtitle">
+                          {selectedProfileType === "admin"
+                            ? "Administrator"
+                            : selectedProfileType === "housekeeper"
+                              ? selected.preferredService || "Housekeeper"
+                              : selectedLocation}
+                        </p>
                         <div className="chip-row">
                           <span className={`status-chip ${selected.status || "pending"}`}>
                             {selected.status || "pending"}
                           </span>
-                          <span className="role-chip">{selected.role || "Householder"}</span>
+                          <span className="role-chip">
+                            {selectedProfileType === "admin"
+                              ? "Admin"
+                              : selectedProfileType === "housekeeper"
+                                ? "Housekeeper"
+                                : "Householder"}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -986,40 +1047,81 @@ function ManageUsers() {
                       </div>
                       <div>
                         <small>Phone number</small>
-                        <strong>{selected.contact || "-----"}</strong>
+                        <strong>{selectedPhone}</strong>
                       </div>
                       <div>
-                        <small>Barangay</small>
-                        <strong>{selected.barangay || "-----"}</strong>
+                        <small>{selectedProfileType === "admin" ? "UID" : "Location"}</small>
+                        <strong>{selectedProfileType === "admin" ? selected.id : selectedLocation}</strong>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="profile-cards-row">
-                  <div className="profile-card">
-                    <h4>Work & Skills</h4>
-                    <p><strong>Experience:</strong> {selected.experience || "-----"}</p>
-                    <p><strong>Availability:</strong> {selected.availability || "-----"}</p>
-                    <p><strong>Preferred Service:</strong> {selected.preferredService || "-----"}</p>
-                    <div className="tag-row">
-                      {(selected.skills || []).map((s) => (
-                        <span key={s} className="tag">{s}</span>
-                      ))}
-                    </div>
-                    <div className="tag-row">
-                      {(selected.serviceAreas || []).map((s) => (
-                        <span key={s} className="tag soft">{s}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="profile-card">
-                    <h4>Logistics</h4>
-                    <p><strong>Phone Model:</strong> {selected.phoneModel || "-----"}</p>
-                    <p><strong>Bank Account:</strong> {selected.bankAccount || "-----"}</p>
-                    <p><strong>Emergency Contact:</strong> {selected.emergency || "-----"}</p>
-                    <p><strong>Uniform Size:</strong> {selected.uniformSize || "-----"}</p>
-                  </div>
+                  {selectedProfileType === "housekeeper" && (
+                    <>
+                      <div className="profile-card">
+                        <h4>Work & Skills</h4>
+                        <p><strong>Experience:</strong> {selected.experience || "-----"}</p>
+                        <p><strong>Availability:</strong> {selected.availability || "-----"}</p>
+                        <p><strong>Preferred Service:</strong> {selected.preferredService || "-----"}</p>
+                        <div className="tag-row">
+                          {(selected.skills || []).map((s) => (
+                            <span key={s} className="tag">{s}</span>
+                          ))}
+                        </div>
+                        <div className="tag-row">
+                          {(selected.serviceAreas || []).map((s) => (
+                            <span key={s} className="tag soft">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="profile-card">
+                        <h4>Logistics</h4>
+                        <p><strong>Phone Model:</strong> {selected.phoneModel || "-----"}</p>
+                        <p><strong>Bank Account:</strong> {selected.bankAccount || "-----"}</p>
+                        <p><strong>Emergency Contact:</strong> {selected.emergency || "-----"}</p>
+                        <p><strong>Uniform Size:</strong> {selected.uniformSize || "-----"}</p>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedProfileType === "householder" && (
+                    <>
+                      <div className="profile-card">
+                        <h4>Household Details</h4>
+                        <p><strong>First name:</strong> {selected.firstName || "-----"}</p>
+                        <p><strong>Last name:</strong> {selected.lastName || "-----"}</p>
+                        <p><strong>Address:</strong> {selected.address || "-----"}</p>
+                        <p><strong>Landmark:</strong> {selected.landmark || "-----"}</p>
+                      </div>
+                      <div className="profile-card">
+                        <h4>Account</h4>
+                        <p><strong>Joined:</strong> {selected.joined || "-----"}</p>
+                        <p><strong>Status:</strong> {selected.status || "pending"}</p>
+                        <p><strong>UID:</strong> {selected.id || "-----"}</p>
+                        <p><strong>Barangay:</strong> {selected.barangay || "-----"}</p>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedProfileType === "admin" && (
+                    <>
+                      <div className="profile-card">
+                        <h4>Admin Access</h4>
+                        <p><strong>Role:</strong> Admin</p>
+                        <p><strong>Status:</strong> {selected.status || "active"}</p>
+                        <p><strong>UID:</strong> {selected.id || "-----"}</p>
+                        <p><strong>Notes:</strong> Admin account managed by the system.</p>
+                      </div>
+                      <div className="profile-card">
+                        <h4>Contact</h4>
+                        <p><strong>Email:</strong> {selected.email || "-----"}</p>
+                        <p><strong>Phone:</strong> {selectedPhone}</p>
+                        <p><strong>Location:</strong> {selectedLocation}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1031,20 +1133,53 @@ function ManageUsers() {
                 >
                   <i className="fas fa-times"></i>
                 </button>
-                <div className="profile-card dense">
-                  <h4>Bio</h4>
-                  <p>
-                    {selected.experience || "No bio provided."}
-                  </p>
-                </div>
-                <div className="profile-card dense">
-                  <h4>Compliance</h4>
-                  <p><strong>Gov ID:</strong> {selected.govId || "—"}</p>
-                  <p><strong>Brgy Clearance:</strong> {selected.barangayClearance}</p>
-                  <p><strong>Training:</strong> {selected.trainingCompleted ? "Completed" : "Pending"}</p>
-                  <p><strong>Certification:</strong> {selected.certification || "—"}</p>
-                  <p><strong>Health Cert:</strong> {selected.healthCert || "—"}</p>
-                </div>
+
+                {selectedProfileType === "housekeeper" && (
+                  <>
+                    <div className="profile-card dense">
+                      <h4>Bio</h4>
+                      <p>{selected.experience || "No bio provided."}</p>
+                    </div>
+                    <div className="profile-card dense">
+                      <h4>Compliance</h4>
+                      <p><strong>Gov ID:</strong> {selected.govId || "—"}</p>
+                      <p><strong>Brgy Clearance:</strong> {selected.barangayClearance}</p>
+                      <p><strong>Training:</strong> {selected.trainingCompleted ? "Completed" : "Pending"}</p>
+                      <p><strong>Certification:</strong> {selected.certification || "—"}</p>
+                      <p><strong>Health Cert:</strong> {selected.healthCert || "—"}</p>
+                    </div>
+                  </>
+                )}
+
+                {selectedProfileType === "householder" && (
+                  <>
+                    <div className="profile-card dense">
+                      <h4>Contact</h4>
+                      <p><strong>Email:</strong> {selected.email || "—"}</p>
+                      <p><strong>Phone:</strong> {selectedPhone}</p>
+                    </div>
+                    <div className="profile-card dense">
+                      <h4>Location</h4>
+                      <p><strong>Province:</strong> {selected.province || "—"}</p>
+                      <p><strong>Municipality:</strong> {selected.municipality || "—"}</p>
+                      <p><strong>Barangay:</strong> {selected.barangay || "—"}</p>
+                    </div>
+                  </>
+                )}
+
+                {selectedProfileType === "admin" && (
+                  <>
+                    <div className="profile-card dense">
+                      <h4>Security</h4>
+                      <p>Admin accounts can manage users, roles, and deletions.</p>
+                    </div>
+                    <div className="profile-card dense">
+                      <h4>Account</h4>
+                      <p><strong>Status:</strong> {selected.status || "active"}</p>
+                      <p><strong>Joined:</strong> {selected.joined || "—"}</p>
+                    </div>
+                  </>
+                )}
               </aside>
             </div>
           </div>

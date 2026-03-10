@@ -15,6 +15,7 @@ import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Staff from "./pages/Staff";
+import Customer from "./pages/Customer";
 import Dashboard from "./pages/admin/Dashboard";
 import ManageUsers from "./pages/admin/ManageUsers";
 import History from "./pages/admin/History";
@@ -28,6 +29,7 @@ function AppContent() {
   const location = useLocation();
   const isLoginPage = location.pathname === '/login';
   const isRegisterPage = location.pathname === '/register';
+  const isCustomerPage = location.pathname.startsWith('/customer') || location.pathname.startsWith('/householder');
   const isStaffPage = location.pathname.startsWith('/staff');
   const isAdminPage = location.pathname.startsWith('/admin');
   const [adminGuard, setAdminGuard] = useState({ loading: false, allowed: false, checked: false });
@@ -83,9 +85,9 @@ function AppContent() {
       {isAdminPage && (!adminGuard.checked || adminGuard.loading) && (
         <BroomLoader message="Sweeping admin access…" fullscreen />
       )}
-      {!isAdminPage && !isStaffPage && <FloatingThemeToggle />}
+      {!isAdminPage && !isStaffPage && !isCustomerPage && <FloatingThemeToggle />}
       {/* Hide Navbar on login and register pages */}
-      {!isLoginPage && !isRegisterPage && !isAdminPage && !isStaffPage && <Navbar />}
+      {!isLoginPage && !isRegisterPage && !isAdminPage && !isStaffPage && !isCustomerPage && <Navbar />}
       {isAdminPage ? (
         !adminGuard.checked || adminGuard.loading ? (
           <div className="main-content" />
@@ -129,6 +131,8 @@ function AppContent() {
                 <Route path="/services" element={<Services />} />
                 <Route path="/blog" element={<Blog />} />
                 <Route path="/contact" element={<Contact />} />
+                <Route path="/customer" element={<Customer />} />
+                <Route path="/householder" element={<Customer />} />
                 <Route path="/staff" element={<Staff />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />

@@ -1,15 +1,17 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Logo from "../components/Logo.png";
 import "./Staff.css";
 import { auth, rtdb } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { ref, onValue } from "firebase/database";
+import { onValue, ref, update } from "firebase/database";
 import BroomLoader from "../components/BroomLoader";
 
 function Staff() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
   const popoverRef = useRef(null);
 
   // Apply saved theme immediately to avoid flash on loader
@@ -93,16 +95,32 @@ function Staff() {
     if (saved === "light") root.classList.remove("dark-mode");
   }, []);
 
-  const tasks = [
-    { id: "T-1045", title: "Deep clean - Pogo Chico", time: "Today 2:00 PM", status: "due" },
-    { id: "T-1046", title: "Laundry & ironing - Bonuan", time: "Tomorrow 9:00 AM", status: "scheduled" },
-    { id: "T-1047", title: "Move-out clean - Downtown", time: "Thu 1:30 PM", status: "new" },
-  ];
+  // Live Requests feed from RTDB (fed by Customer page)
+  useEffect(() => {
+    const requestsRef = ref(rtdb, "Requests");
+    const stop = onValue(
+      requestsRef,
+      (snap) => {
+        const data = snap.val() || {};
+        const list = Object.entries(data).map(([id, v]) => ({ id, ...v }));
+        setRequests(list);
+        setRequestsLoading(false);
+      },
+      () => setRequestsLoading(false)
+    );
+    return () => stop();
+  }, []);
 
-  const requests = [
-    { id: "REQ-8721", customer: "Maria D.", location: "Bacayao Norte", service: "Housecleaning", payout: "₱1,200", status: "pending" },
-    { id: "REQ-8722", customer: "John P.", location: "Calmay", service: "Deep Cleaning", payout: "₱1,800", status: "pending" },
-  ];
+  const tasks = useMemo(() => {
+    return (requests || [])
+      .filter((r) => ["accepted", "scheduled"].includes((r.status || "").toLowerCase()))
+      .map((r) => ({
+        id: r.id,
+        title: `${r.service || "Service"} - ${r.location || "Location"}`,
+        time: r.preferredTime || "Scheduled",
+        status: (r.status || "scheduled").toLowerCase()
+      }));
+  }, [requests]);
 
   const notifications = [
     { id: 1, title: "Schedule updated", body: "Saturday slot moved to 3:00 PM.", when: "5m ago" },
@@ -110,15 +128,21 @@ function Staff() {
   ];
 
   const history = [
-    { id: "H-441", job: "Housecleaning - Lucao", date: "Mar 05", hours: "3.0", payout: "₱950", status: "paid" },
-    { id: "H-442", job: "Deep clean - Calasiao", date: "Mar 04", hours: "4.5", payout: "₱1,750", status: "pending" },
-    { id: "H-443", job: "Laundry - Downtown", date: "Mar 03", hours: "2.0", payout: "₱600", status: "paid" },
+    { id: "H-441", job: "Housecleaning - Lucao", date: "Mar 05", hours: "3.0", payout: "PHP 950", status: "paid" },
+    { id: "H-442", job: "Deep clean - Calasiao", date: "Mar 04", hours: "4.5", payout: "PHP 1,750", status: "pending" },
+    { id: "H-443", job: "Laundry - Downtown", date: "Mar 03", hours: "2.0", payout: "PHP 600", status: "paid" },
   ];
+
+  const handleRequestAction = async (id, statusValue) => {
+    if (!id) return;
+    const reqRef = ref(rtdb, `Requests/${id}`);
+    await update(reqRef, { status: statusValue });
+  };
 
   return (
     <div className="staff-shell neo">
       {profileLoading && (
-        <BroomLoader message="Sweeping your workspace…" fullscreen />
+        <BroomLoader message="Sweeping your workspace..." fullscreen />
       )}
       <div className="staff-topbar">
           <img src={Logo} alt="Houseclean Logo"/>
@@ -189,7 +213,7 @@ function Staff() {
                   </div>
                   <div className="info-line">
                     <i className="fas fa-phone"></i>
-                    <span>{profile?.contact || "+63 ••• ••• ••••"}</span>
+                    <span>{profile?.contact || "+63 *** *** ****"}</span>
                   </div>
                   <div className="info-line">
                     <i className="fas fa-map-marker-alt"></i>
@@ -272,14 +296,14 @@ function Staff() {
               <li className="pill">Payment follow-up</li>
             </ul>
           </div>
-          <div className="sidebar-card">
+          {/* <div className="sidebar-card">
             <p className="muted small">Status</p>
             <ul className="pill-list">
               <li className="pill soft green">Confirmed</li>
               <li className="pill soft amber">Awaiting approval</li>
               <li className="pill soft blue">Training</li>
             </ul>
-          </div>
+          </div> */}
         </aside>
 
         <main className="staff-main">
@@ -295,7 +319,7 @@ function Staff() {
               <div className="hero-stats">
                 <div>
                   <p className="mini-label">Today&apos;s tasks</p>
-                  <h3>3</h3>
+                  <h3>{tasks.length}</h3>
                 </div>
                 <div>
                   <p className="mini-label">Unread notices</p>
@@ -318,23 +342,27 @@ function Staff() {
               <button className="btn pill ghost">View full schedule</button>
             </div>
             <div className="board-items">
-              {tasks.map((t) => (
-                <div key={t.id} className={`board-row ${t.status}`}>
-                  <div className="row-main">
-                    <div className="avatar-pill">{t.id.slice(-2)}</div>
-                    <div>
-                      <strong>{t.title}</strong>
-                      <p className="muted small">{t.time}</p>
+              {tasks.length === 0 ? (
+                <div className="empty-state">Accepted requests will appear here after staff action.</div>
+              ) : (
+                tasks.map((t) => (
+                  <div key={t.id} className={`board-row ${t.status}`}>
+                    <div className="row-main">
+                      <div className="avatar-pill">{String(t.id).slice(-2)}</div>
+                      <div>
+                        <strong>{t.title}</strong>
+                        <p className="muted small">{t.time}</p>
+                      </div>
+                    </div>
+                    <div className="row-meta">
+                      <span className={`chip ${t.status}`}>{t.status}</span>
+                      <button className="icon-btn ghost" aria-label="Open task">
+                        <i className="fas fa-pen"></i>
+                      </button>
                     </div>
                   </div>
-                  <div className="row-meta">
-                    <span className={`chip ${t.status}`}>{t.status}</span>
-                    <button className="icon-btn ghost" aria-label="Open task">
-                      <i className="fas fa-pen"></i>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
 
@@ -347,28 +375,46 @@ function Staff() {
               <span className="pill stat">Secure & role-verified</span>
             </div>
             <div className="board-items">
-              {requests.map((r) => (
-                <div key={r.id} className="board-row pending">
-                  <div className="row-main">
-                    <div className="avatar-pill alt">{r.customer.slice(0, 2).toUpperCase()}</div>
-                    <div>
-                      <strong>{r.service}</strong>
-                      <p className="muted small">
-                        {r.customer} • {r.location}
-                      </p>
+              {requestsLoading ? (
+                <div className="empty-state">Loading requests...</div>
+              ) : requests.length === 0 ? (
+                <div className="empty-state">
+                  No requests yet. Customer submissions from /customer land here in real time.
+                </div>
+              ) : (
+                requests.map((r) => (
+                  <div key={r.id} className={`board-row ${r.status || "pending"}`}>
+                    <div className="row-main">
+                      <div className="avatar-pill alt">{(r.customer || "??").slice(0, 2).toUpperCase()}</div>
+                      <div>
+                        <strong>{r.service || "Service request"}</strong>
+                        <p className="muted small">
+                          {r.customer || "Customer"} • {r.location || "Location"}
+                        </p>
+                        {r.preferredTime && <p className="tiny muted">{r.preferredTime}</p>}
+                        {r.notes && <p className="tiny muted">{r.notes}</p>}
+                      </div>
+                    </div>
+                    <div className="row-meta actions">
+                      <span className="payout">{r.payout || "PHP --"}</span>
+                      <button
+                        className="icon-btn ghost danger"
+                        aria-label="Decline"
+                        onClick={() => handleRequestAction(r.id, "declined")}
+                      >
+                        <i className="fas fa-times"></i>
+                      </button>
+                      <button
+                        className="icon-btn ghost"
+                        aria-label="Accept"
+                        onClick={() => handleRequestAction(r.id, "accepted")}
+                      >
+                        <i className="fas fa-check"></i>
+                      </button>
                     </div>
                   </div>
-                  <div className="row-meta actions">
-                    <span className="payout">{r.payout}</span>
-                    <button className="icon-btn ghost danger" aria-label="Decline">
-                      <i className="fas fa-times"></i>
-                    </button>
-                    <button className="icon-btn ghost" aria-label="Accept">
-                      <i className="fas fa-check"></i>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
 
@@ -445,7 +491,6 @@ function Staff() {
                 <p className="eyebrow">Account & Security</p>
                 <h4>Profile</h4>
               </div>
-              <span className="pill stat">Admin monitored</span>
             </div>
             <div className="settings-grid-lite">
               <label>
@@ -458,7 +503,7 @@ function Staff() {
               </label>
               <label>
                 Phone
-                <input type="text" placeholder="09•••••••••" />
+                <input type="text" placeholder="09*********" />
               </label>
               <label>
                 Password

@@ -306,14 +306,6 @@ function Dashboard() {
             <p className="profile-role">Administrator</p>
             <div className="rail-mini-list">
               <div className="rail-mini-item">
-                <span className="mini-label"><i className="fas fa-id-card"></i> Pending approvals</span>
-                <span className="mini-value">{stats.requests}</span>
-              </div>
-              <div className="rail-mini-item">
-                <span className="mini-label"><i className="fas fa-bell"></i> Unread alerts</span>
-                <span className="mini-value">{unreadCount}</span>
-              </div>
-              <div className="rail-mini-item">
                 <span className="mini-label"><i className="fas fa-sync"></i> Last sync</span>
                 <span className="mini-value">5m ago</span>
               </div>

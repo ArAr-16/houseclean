@@ -55,7 +55,8 @@ function Login() {
       const normalizedProfile = {
         ...(adminState.profile || {}),
         email: user.email || email,
-        role: adminState.isAdmin ? "admin" : (adminState.profile?.role || "user")
+        // Default non-admin users to householder to match app routing.
+        role: adminState.isAdmin ? "admin" : (adminState.profile?.role || "householder")
       };
 
       try {
@@ -74,6 +75,8 @@ function Login() {
         navigate("/admin");
       } else if (role === "housekeeper" || role === "staff") {
         navigate("/staff");
+      } else if (role === "householder" || role === "customer" || role === "user") {
+        navigate("/customer");
       } else {
         navigate("/");
       }

@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { auth, db } from "../firebase";
+import { auth, db, rtdb } from "../firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc, collection, query, where, getDocs, limit } from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
+import { ref, set as rtdbSet } from "firebase/database";
 import "./Login.css";
 
 function Register() {
   const [signUpStep, setSignUpStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -23,6 +25,7 @@ function Register() {
   const [error, setError] = useState('');
   const [errorFields, setErrorFields] = useState({});
   const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const navigate = useNavigate();
@@ -67,17 +70,22 @@ function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (signUpStep === 1) {
       // shouldn't reach here because Next button advances to step 2
       return;
     }
+    setIsSubmitting(true);
     setSuccess(false);
+    setSuccessMessage("");
+    setError("");
     const nextErrors = {};
     if (!isValidFirstName(formData.firstName) || !isValidLastName(formData.lastName)) {
       setError('First and last name must be letters only (A-Z), min 2 letters. Spaces allowed.');
       nextErrors.firstName = !isValidFirstName(formData.firstName);
       nextErrors.lastName = !isValidLastName(formData.lastName);
       setErrorFields(nextErrors);
+      setIsSubmitting(false);
       return;
     }
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/; // basic email
@@ -86,12 +94,14 @@ function Register() {
       setError('Phone number must be 11 digits, start with 09, numbers only.');
       nextErrors.phone = true;
       setErrorFields(nextErrors);
+      setIsSubmitting(false);
       return;
     }
     if (formData.password.length < 6 || formData.password.length > 16) {
       setError('Password must be 6 to 16 characters.');
       nextErrors.password = true;
       setErrorFields(nextErrors);
+      setIsSubmitting(false);
       return;
     }
     if (formData.password !== formData.confirmPassword) {
@@ -99,51 +109,83 @@ function Register() {
       nextErrors.password = true;
       nextErrors.confirmPassword = true;
       setErrorFields(nextErrors);
+      setIsSubmitting(false);
       return;
     }
     if (!emailPattern.test(formData.email.trim())) {
       setError('Please enter a valid email address (example@gmail.com).');
       setErrorFields({ email: true });
+      setIsSubmitting(false);
       return;
     }
     setErrorFields({});
+
+    const emailInput = formData.email.trim();
+    const emailLower = emailInput.toLowerCase();
+
+    let user;
     try {
-      // Uniqueness checks before creating auth user (email + phone)
-      const emailInput = formData.email.trim();
-      const emailLower = emailInput.toLowerCase();
-      let emailSnapshot = await getDocs(
-        query(collection(db, "Users"), where("email", "==", emailInput), limit(1))
-      );
-      if (emailSnapshot.empty && emailLower !== emailInput) {
-        emailSnapshot = await getDocs(
-          query(collection(db, "Users"), where("email", "==", emailLower), limit(1))
-        );
-      };
+      const userCredential = await createUserWithEmailAndPassword(auth, emailLower, formData.password);
+      user = userCredential.user;
+      // Ensure the auth token is available before performing any Firestore/RTDB writes (rules often require auth).
+      await user.getIdToken();
+    } catch (authErr) {
+      console.error("Registration auth error:", authErr);
+      const code = authErr?.code || "";
+      const msg = authErr?.message || "";
 
-
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-      const user = userCredential.user;
-      await setDoc(doc(db, "Users", user.uid), {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        province: formData.province,
-        municipality: formData.municipality,
-        barangay: formData.barangay,
-        address: formData.address,
-        landmark: formData.landmark,
-        email: emailInput,
-        phone: formData.phone,
-        role: "Householder"
-      });
-      setSuccess(true);
-      setTimeout(() => navigate("/login"), 1500);
-    } catch (error) {
       let friendly = "";
+      if (code === "auth/email-already-in-use" || msg.includes("email-already-in-use")) {
+        friendly = "This email is already registered.";
+      } else if (code === "auth/invalid-email" || msg.includes("invalid-email")) {
+        friendly = "Please enter a valid email address.";
+      } else if (code === "auth/weak-password" || msg.includes("weak-password")) {
+        friendly = "Password is too weak. Use at least 6 characters.";
+      } else if (code === "auth/network-request-failed" || msg.includes("network")) {
+        friendly = "Network error. Please check your connection.";
+      } else {
+        friendly = "Unable to register. Please try again.";
+      }
 
-    
-
-      setError(friendly || "");
+      setError(friendly);
+      setIsSubmitting(false);
+      return;
     }
+
+    const profile = {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      province: formData.province,
+      municipality: formData.municipality,
+      barangay: formData.barangay,
+      address: formData.address,
+      landmark: formData.landmark,
+      email: emailLower,
+      phone: formData.phone,
+      role: "Householder",
+      id: user.uid,
+      status: "active",
+      joined: new Date().toISOString().slice(0, 10)
+    };
+
+    // If a database write is blocked by security rules, the account can still be created in Auth.
+    // Don't show "registration failed" when the user was actually created.
+    const writeResults = await Promise.allSettled([
+      setDoc(doc(db, "Users", user.uid), profile),
+      rtdbSet(ref(rtdb, `Users/${user.uid}`), profile)
+    ]);
+
+    const failedWrites = writeResults.filter((r) => r.status === "rejected");
+    if (failedWrites.length) {
+      console.warn("Profile save partially failed:", failedWrites.map((r) => r.reason?.code || r.reason?.message));
+      setSuccessMessage("Account created. Redirecting to sign in... (Some profile sync may be pending)");
+    } else {
+      setSuccessMessage("Account created successfully. Redirecting to sign in...");
+    }
+
+    setSuccess(true);
+    setTimeout(() => navigate("/login"), 1200);
+    setIsSubmitting(false);
   };
 
   const goToNextStep = () => {
@@ -188,7 +230,16 @@ function Register() {
             <h2>Create Account</h2>
             <p>Join HouseClean today</p>
             {error && <div className="form-error">{error}</div>}
-            {success && <div className="form-success">Registration successful! Redirecting to sign in...</div>}
+            {success && (
+              <div className="form-success">
+                {successMessage || "Account created successfully. Redirecting to sign in..."}
+                <div style={{ marginTop: 10 }}>
+                  <button type="button" className="toggle-btn" onClick={() => navigate("/login")}>
+                    Go to Sign In
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <form onSubmit={handleSubmit} className="form-content">
             {signUpStep === 1 ? (
@@ -364,7 +415,9 @@ function Register() {
                   </div>
                 </div>
                 <div className="form-group">
-                  <button type="submit" className="submit-btn">Register</button>
+                  <button type="submit" className="submit-btn" disabled={isSubmitting || success}>
+                    {isSubmitting ? "Creating..." : "Register"}
+                  </button>
                 </div>
                 <div className="form-group">
                   <button type="button" className="toggle-btn" onClick={() => setSignUpStep(1)}>Back</button>

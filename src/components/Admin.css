@@ -89,13 +89,28 @@ html.dark-mode .history-badge.badge-info {
   color: #dbeafe;
 }
 /* === Font Awesome Icon Visibility === */
+
+.admin-page:not(.neo-admin) .fas { color: white; }
 .admin-page .fa,
-.admin-page .fas,
 .admin-page .far,
 .admin-page .fal,
 .admin-page .fad,
 .admin-page .fab {
   color: #13829f;
+}
+
+.admin-page.neo-admin {
+  /* Neo admin screens are light; don't inherit the classic white text. */
+  color: #0f2e4d;
+}
+
+.admin-page.neo-admin .fas,
+.admin-page.neo-admin .fa,
+.admin-page.neo-admin .far,
+.admin-page.neo-admin .fal,
+.admin-page.neo-admin .fad,
+.admin-page.neo-admin .fab {
+  color: #0f5f7a;
 }
 
 html.dark-mode .admin-page .fa,
@@ -1133,7 +1148,6 @@ html.dark-mode .stat-card {
 }
 
 .btn.primary {
-  background: #065481;
   border: 1px solid #a7cceb;
   color: #fff;
   box-shadow: 0 6px 16px rgba(19, 130, 159, 0.25);
@@ -1239,7 +1253,6 @@ html.dark-mode .staff-modal__panel { background: #1f2a44; border: 1px solid #2d3
   background: rgba(19, 130, 159, 0.08);
   color: #0f5f7a;
   border-radius: 10px;
-  padding: 15px 20px;
   cursor: pointer;
 }
 
@@ -2764,11 +2777,10 @@ html.dark-mode .area-option.selected span {
   width: 54px;
   height: 54px;
   border-radius: 18px;
-  background: linear-gradient(135deg, rgba(246, 194, 79, 0.9) 0%, rgba(116, 219, 250, 0.9) 100%);
-  color: #0f2e4d;
+  background: linear-gradient(135deg, #2f6bff, #3fbff5);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(47, 107, 255, 0.25);
   border: 1px solid rgba(15, 95, 122, 0.15);
-  box-shadow: 0 14px 28px rgba(15, 95, 122, 0.22);
-  backdrop-filter: blur(8px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
