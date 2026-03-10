@@ -370,7 +370,8 @@ html.dark-mode .toggle-password:hover {
 
 .login-decoration {
   flex: 1;
-  background: linear-gradient(135deg, #333a5b);
+  --login-logo-width: clamp(240px, 42vw, 460px);
+  background: linear-gradient(135deg, #333a5b 0%, #2a3150 55%, #1e243d 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -392,6 +393,9 @@ html.dark-mode .toggle-password:hover {
 
 .decoration-content {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .decoration-content h3 {
@@ -428,9 +432,13 @@ html.dark-mode .toggle-password:hover {
   60% { transform: translateY(-5px); }
 }
 
-.logo-img2 {
-  width: 20rem;
-  margin-bottom: 20px;
+.login-logo {
+  width: var(--login-logo-width);
+  max-width: 80%;
+  height: auto;
+  display: block;
+  margin: 0 auto 22px;
+  filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.35));
 }
 
 @media (max-width: 768px) {

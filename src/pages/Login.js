@@ -165,7 +165,7 @@ function Login() {
 
         <div className="login-decoration">
           <div className="decoration-content">           
-            <img src={Logo} alt="Houseclean Logo" className="logo-img2" />
+            <img src={Logo} alt="Houseclean Logo" className="login-logo" />
             <p>Your trusted partner for professional cleaning services</p>
           </div>
         </div>
