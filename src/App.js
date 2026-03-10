@@ -6,6 +6,7 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import AdminSidebar from "./components/AdminSidebar";
 import FloatingThemeToggle from "./components/FloatingThemeToggle";
+import BroomLoader from "./components/BroomLoader";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Services from "./pages/Services";
@@ -80,13 +81,7 @@ function AppContent() {
   return (
     <div className="App">
       {isAdminPage && (!adminGuard.checked || adminGuard.loading) && (
-        <div className="guard-loading">
-          <div className="loader-pulse">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </div>
+        <BroomLoader message="Sweeping admin access…" fullscreen />
       )}
       {!isAdminPage && !isStaffPage && <FloatingThemeToggle />}
       {/* Hide Navbar on login and register pages */}

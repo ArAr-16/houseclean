@@ -1,9 +1,97 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Logo from "../components/Logo.png";
 import "./Staff.css";
+import { auth, rtdb } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { ref, onValue } from "firebase/database";
+import BroomLoader from "../components/BroomLoader";
 
 function Staff() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const popoverRef = useRef(null);
+
+  // Apply saved theme immediately to avoid flash on loader
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("theme");
+    const root = document.documentElement;
+    if (saved === "dark") root.classList.add("dark-mode");
+    else if (saved === "light") root.classList.remove("dark-mode");
+  }
+
+  useEffect(() => {
+    let stopProfile;
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setProfileLoading(true);
+      if (stopProfile) {
+        stopProfile();
+        stopProfile = undefined;
+      }
+      if (!user) {
+        setProfile(null);
+        setProfileLoading(false);
+        return;
+      }
+      const userRef = ref(rtdb, `Users/${user.uid}`);
+      stopProfile = onValue(
+        userRef,
+        (snap) => {
+          const data = snap.val();
+          if (data) {
+            setProfile({ id: user.uid, email: user.email, ...data });
+          } else {
+            setProfile({ id: user.uid, email: user.email });
+          }
+          setProfileLoading(false);
+        },
+        () => {
+          setProfile({ id: user.uid, email: user.email });
+          setProfileLoading(false);
+        }
+      );
+    });
+
+    return () => {
+      if (stopProfile) stopProfile();
+      unsubscribeAuth();
+    };
+  }, []);
+
+  // Close popover on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (!menuOpen) return;
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("touchstart", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("touchstart", handleClick);
+    };
+  }, [menuOpen]);
+
+  const displayName =
+    (profile?.fullName || profile?.name || profile?.email || "Staff guest").trim();
+  const initials = (displayName || "ST").slice(0, 2).toUpperCase();
+  const status = (profile?.status || "pending").toLowerCase();
+  const statusClass =
+    status === "active" ? "active" : status === "disabled" ? "disabled" : "pending";
+  const roleLabel = profileLoading ? "Connecting..." : profile?.role || "Housekeeper";
+  const isStaffRole = ["housekeeper", "staff"].includes((profile?.role || "").toLowerCase());
+  const avatarUrl = profile?.photoURL || profile?.avatar || profile?.image;
+  const showGuest = !profile && !profileLoading;
+
+  // Ensure saved theme applies on this route (no FloatingThemeToggle here)
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    const root = document.documentElement;
+    if (saved === "dark") root.classList.add("dark-mode");
+    if (saved === "light") root.classList.remove("dark-mode");
+  }, []);
 
   const tasks = [
     { id: "T-1045", title: "Deep clean - Pogo Chico", time: "Today 2:00 PM", status: "due" },
@@ -29,48 +117,143 @@ function Staff() {
 
   return (
     <div className="staff-shell neo">
+      {profileLoading && (
+        <BroomLoader message="Sweeping your workspace…" fullscreen />
+      )}
       <div className="staff-topbar">
-        <div className="brand">
-          <img src={Logo} alt="Houseclean Logo" className="logo-img2" />
-        </div>
+          <img src={Logo} alt="Houseclean Logo"/>
         <nav className="top-links">
           <a href="#tasks">Dashboard</a>
           <a href="#requests">Requests</a>
           <a href="#calendar">Schedule</a>
           <a href="#history">History</a>
-          <a href="#staff-settings">Profile</a>
         </nav>
         <div className="top-actions">
-          <button className="icon-btn ghost" aria-label="Notifications" onClick={() => document.getElementById("staff-notifications")?.scrollIntoView({ behavior: "smooth" })}>
+                    <button className="icon-btn ghost" aria-label="Notifications" onClick={() => document.getElementById("staff-notifications")?.scrollIntoView({ behavior: "smooth" })}>
             <i className="fas fa-bell"></i>
           </button>
-          <div className="avatar-menu">
-            <button className="icon-btn menu" type="button" onClick={() => setMenuOpen((v) => !v)} aria-label="Staff menu">
-              <i className="fas fa-ellipsis-v"></i>
-            </button>
+          <div
+            className="mini-profile-wrapper"
+            ref={popoverRef}
+          >
+            {(isStaffRole || showGuest) && (
+              <button
+                type="button"
+                className={`staff-mini-profile ${showGuest ? "guest" : ""}`}
+                title={profile?.email || "Not signed in"}
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+                <div className="avatar-badge">
+                  {showGuest ? (
+                    "ST"
+                  ) : avatarUrl ? (
+                    <img src={avatarUrl} alt={displayName} />
+                  ) : (
+                    initials
+                  )}
+                </div>
+                <div className="mini-profile-meta">
+                  <strong>{profileLoading ? "Loading..." : showGuest ? "Guest" : displayName}</strong>
+                  <span className="role-line">
+                    <span className={`status-dot ${showGuest ? "pending" : statusClass}`}></span>
+                    {showGuest ? "Preview mode" : roleLabel}
+                  </span>
+                </div>
+                {showGuest && (
+                  <div className="guest-actions">
+                    <a className="guest-link" href="/login">Sign in</a>
+                    <a className="guest-link" href="/register">Create account</a>
+                  </div>
+                )}
+              </button>
+            )}
             {menuOpen && (
-              <div className="staff-dropdown" onMouseLeave={() => setMenuOpen(false)}>
-                <button type="button" onClick={() => { document.getElementById("staff-notifications")?.scrollIntoView({ behavior: "smooth" }); setMenuOpen(false); }}>
-                  <i className="fas fa-bell"></i> Notifications
-                </button>
-                <button type="button" onClick={() => { document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" }); setMenuOpen(false); }}>
-                  <i className="fas fa-cog"></i> Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const root = document.documentElement;
-                    const next = !root.classList.contains("dark-mode");
-                    root.classList.toggle("dark-mode", next);
-                    localStorage.setItem("theme", next ? "dark" : "light");
-                    setMenuOpen(false);
-                  }}
-                >
-                  <i className="fas fa-moon"></i> Toggle dark mode
-                </button>
-                <button type="button" className="danger" onClick={() => (window.location.href = "/login")}>
-                  <i className="fas fa-sign-out-alt"></i> Logout
-                </button>
+              <div className="staff-profile-popover">
+                <div className="popover-header">
+                  <div className="avatar-hero">
+                    <div className="hero-avatar">
+                      {avatarUrl ? <img src={avatarUrl} alt={displayName} /> : initials}
+                      <span className={`dot-overlay ${showGuest ? "pending" : statusClass}`}></span>
+                    </div>
+                    <div>
+                      <h4>{profileLoading ? "Loading..." : showGuest ? "Guest" : displayName}</h4>
+                      <p className="role">{showGuest ? "Preview mode" : roleLabel}</p>
+                      {!showGuest && <p className="muted small">{profile?.preferredService || profile?.barangay || profile?.email}</p>}
+                    </div>
+                  </div>
+                </div>
+                <div className="popover-body">
+                  <div className="info-line">
+                    <i className="fas fa-envelope"></i>
+                    <span>{profile?.email || "signin@houseclean.app"}</span>
+                  </div>
+                  <div className="info-line">
+                    <i className="fas fa-phone"></i>
+                    <span>{profile?.contact || "+63 ••• ••• ••••"}</span>
+                  </div>
+                  <div className="info-line">
+                    <i className="fas fa-map-marker-alt"></i>
+                    <span>{profile?.barangay || "Dagupan City"}</span>
+                  </div>
+                </div>
+                <div className="popover-actions">
+                  {showGuest ? (
+                    <>
+                      <a className="btn primary block" href="/login">Sign in</a>
+                      <a className="btn ghost block" href="/register">Create account</a>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="btn primary block"
+                        type="button"
+                        onClick={() => {
+                          document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" });
+                          setMenuOpen(false);
+                        }}
+                      >
+                        View profile
+                      </button>
+                      <div className="chip-actions">
+                        <button
+                          className="icon-chip"
+                          type="button"
+                          aria-label="Settings"
+                          onClick={() => {
+                            document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" });
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <i className="fas fa-cog"></i>
+                        </button>
+                        <button
+                          className="icon-chip"
+                          type="button"
+                          aria-label="Toggle dark mode"
+                          onClick={() => {
+                            const root = document.documentElement;
+                            const next = !root.classList.contains("dark-mode");
+                            root.classList.toggle("dark-mode", next);
+                            localStorage.setItem("theme", next ? "dark" : "light");
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <i className="fas fa-moon"></i>
+                        </button>
+                        <button
+                          className="icon-chip danger"
+                          type="button"
+                          aria-label="Logout"
+                          onClick={() => {
+                            window.location.href = "/login";
+                          }}
+                        >
+                          <i className="fas fa-sign-out-alt"></i>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>

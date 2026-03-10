@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Logo from "../components/Logo.png";
+import BroomLoader from "../components/BroomLoader";
 import "./Login.css";
 import { auth, db, rtdb } from "../firebase";
-import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { ref, update, get } from "firebase/database";
 import { resolveAdminStatus } from "../utils/adminRole";
@@ -34,10 +35,10 @@ function Login() {
     try {
       const email = formData.email.trim();
       const password = formData.password.trim();
+      await setPersistence(auth, browserSessionPersistence);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Block disabled accounts (status set in Realtime Database by admin)
       try {
         const statusSnap = await get(ref(rtdb, `Users/${user.uid}/status`));
         if (statusSnap.exists() && String(statusSnap.val()).toLowerCase() === "disabled") {
@@ -68,9 +69,11 @@ function Login() {
         console.warn("RTDB sync skipped (permission)", rtdbErr?.code);
       }
 
-
+      const role = (normalizedProfile.role || "").toLowerCase();
       if (adminState.isAdmin) {
         navigate("/admin");
+      } else if (role === "housekeeper" || role === "staff") {
+        navigate("/staff");
       } else {
         navigate("/");
       }
@@ -87,24 +90,19 @@ function Login() {
         setError("Unable to sign in right now. Please try again.");
       }
       console.error("Login error", code, error?.message);
+      return;
     }
+    setIsLoading(false);
   };
-
-  
 
   return (
     <div className="login-page">
-      {isLoading && !error && (
-        <div className="login-loading">
-          <div className="loader" />
-          <p>Signing you in…</p>
-        </div>
-      )}
+      {isLoading && !error && <BroomLoader message="Sweeping you in…" fullscreen />}
       <div className="login-container">
         <div className="login-form">
           <div className="back-button">
             <button onClick={() => navigate('/')} className="back-btn">
-            Back to Home
+              Back to Home
             </button>
           </div>
           
@@ -131,14 +129,14 @@ function Login() {
               <label htmlFor="password">Password</label>
               <div className="password-wrapper">
                 <input
-                type={showPassword ? "text" : "password"}
-                id="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                placeholder="Enter your password"
-              />
+                  type={showPassword ? "text" : "password"}
+                  id="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  required
+                  placeholder="Enter your password"
+                />
                 <button
                   type="button"
                   className="toggle-password icon-only"

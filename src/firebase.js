@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
@@ -14,7 +14,13 @@ const firebaseConfig = {
   measurementId: "G-3956QKK120"
 };
 
-const app = initializeApp(firebaseConfig);
+// Use a singleton primary app so hot-reloads don't re-initialize Firebase
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Secondary auth instance lets us create users without logging out the admin
+const secondaryApp =
+  getApps().find((a) => a.name === "Secondary") || initializeApp(firebaseConfig, "Secondary");
+export const secondaryAuth = getAuth(secondaryApp);
 export const db = getFirestore(app);
 export const rtdb = getDatabase(app);

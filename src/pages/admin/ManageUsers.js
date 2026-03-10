@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import "../../components/Admin.css";
-import { rtdb, auth } from "../../firebase";
+import { rtdb, auth, secondaryAuth } from "../../firebase";
 import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged } from "firebase/auth";
 import { ref, onValue, set, update as rtdbUpdate, remove } from "firebase/database";
 
@@ -320,7 +320,7 @@ function ManageUsers() {
     if (!validateForm()) return;
     try {
       const cred = await createUserWithEmailAndPassword(
-        auth,
+        secondaryAuth,
         form.email.trim(),
         form.password
       );
