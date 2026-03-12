@@ -3,7 +3,17 @@ import Logo from "../components/Logo.png";
 import "./Staff.css";
 import { auth, rtdb } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { onValue, ref, update } from "firebase/database";
+import {
+  equalTo,
+  onValue,
+  orderByChild,
+  push,
+  query as rtdbQuery,
+  ref as rtdbRef,
+  serverTimestamp as rtdbServerTimestamp,
+  set as rtdbSet,
+  update as rtdbUpdate
+} from "firebase/database";
 import BroomLoader from "../components/BroomLoader";
 
 function Staff() {
@@ -12,6 +22,9 @@ function Staff() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [requests, setRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [paymentMethodByRequestId, setPaymentMethodByRequestId] = useState({});
   const popoverRef = useRef(null);
 
   // Apply saved theme immediately to avoid flash on loader
@@ -35,7 +48,7 @@ function Staff() {
         setProfileLoading(false);
         return;
       }
-      const userRef = ref(rtdb, `Users/${user.uid}`);
+      const userRef = rtdbRef(rtdb, `Users/${user.uid}`);
       stopProfile = onValue(
         userRef,
         (snap) => {
@@ -84,8 +97,45 @@ function Staff() {
     status === "active" ? "active" : status === "disabled" ? "disabled" : "pending";
   const roleLabel = profileLoading ? "Connecting..." : profile?.role || "Housekeeper";
   const isStaffRole = ["housekeeper", "staff"].includes((profile?.role || "").toLowerCase());
+  const myRole = String(profile?.role || "").toLowerCase();
+  const isStaffManager = myRole === "staff";
+  const isHousekeeper = myRole === "housekeeper";
   const avatarUrl = profile?.photoURL || profile?.avatar || profile?.image;
   const showGuest = !profile && !profileLoading;
+  const clockedInRaw = profile?.clockedIn ?? profile?.clockIn ?? profile?.isClockedIn ?? profile?.clocked_in ?? null;
+  const clockedInFlag =
+    clockedInRaw === true || clockedInRaw === "true" || clockedInRaw === 1 || clockedInRaw === "1";
+  const timeIn = profile?.timeIn ?? profile?.time_in ?? profile?.clockInAt ?? null;
+  const timeOut = profile?.timeOut ?? profile?.time_out ?? profile?.clockOutAt ?? null;
+  const hasTimeIn = timeIn != null && String(timeIn).trim() !== "";
+  const hasTimeOut = timeOut != null && String(timeOut).trim() !== "";
+  const isClockedIn = clockedInFlag || (hasTimeIn && !hasTimeOut);
+
+  const toggleClockIn = async () => {
+    if (showGuest || !isStaffRole) return;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const userRef = rtdbRef(rtdb, `Users/${uid}`);
+    if (isClockedIn) {
+      await rtdbUpdate(userRef, { clockedIn: false, timeOut: rtdbServerTimestamp() });
+    } else {
+      await rtdbUpdate(userRef, { clockedIn: true, timeIn: rtdbServerTimestamp(), timeOut: null });
+    }
+  };
+
+  const sendNotification = async ({ toUserId, title, body, requestId }) => {
+    if (!toUserId) return;
+    const listRef = rtdbRef(rtdb, `UserNotifications/${String(toUserId)}`);
+    const notifRef = push(listRef);
+    await rtdbSet(notifRef, {
+      title: String(title || "Update"),
+      body: String(body || ""),
+      requestId: String(requestId || ""),
+      createdAt: rtdbServerTimestamp(),
+      read: false,
+      source: "web"
+    });
+  };
 
   // Ensure saved theme applies on this route (no FloatingThemeToggle here)
   useEffect(() => {
@@ -93,39 +143,88 @@ function Staff() {
     const root = document.documentElement;
     if (saved === "dark") root.classList.add("dark-mode");
     if (saved === "light") root.classList.remove("dark-mode");
-  }, []);
-
-  // Live Requests feed from RTDB (fed by Customer page)
+  }, []); 
+ 
+  // Live Requests feed from RTDB
   useEffect(() => {
-    const requestsRef = ref(rtdb, "Requests");
+    if (profileLoading) return;
+    setRequestsLoading(true);
+
+    const myId = profile?.id || auth.currentUser?.uid || "";
+    const myRoleLocal = String(profile?.role || "").trim().toLowerCase();
+    const isStaffLocal = ["housekeeper", "staff"].includes(myRoleLocal);
+
+    if (!isStaffLocal || !myId) {
+      setRequests([]);
+      setRequestsLoading(false);
+      return;
+    }
+
+    const q =
+      myRoleLocal === "housekeeper"
+        ? rtdbQuery(rtdbRef(rtdb, "ServiceRequests"), orderByChild("housekeeperId"), equalTo(myId))
+        : rtdbQuery(rtdbRef(rtdb, "ServiceRequests"), orderByChild("createdAt"));
     const stop = onValue(
-      requestsRef,
+      q,
       (snap) => {
-        const data = snap.val() || {};
-        const list = Object.entries(data).map(([id, v]) => ({ id, ...v }));
+        const val = snap.val() || {};
+        const list = Object.entries(val).map(([id, data]) => ({
+          id,
+          requestId: data?.requestId || id,
+          ...(data || {})
+        }));
+        list.sort((a, b) => {
+          const aMs = Number(a.createdAt ?? a.timestamp ?? 0) || 0;
+          const bMs = Number(b.createdAt ?? b.timestamp ?? 0) || 0;
+          return bMs - aMs;
+        });
         setRequests(list);
         setRequestsLoading(false);
       },
       () => setRequestsLoading(false)
     );
     return () => stop();
-  }, []);
+  }, [profile?.id, profile?.role, profileLoading]);
 
-  const tasks = useMemo(() => {
-    return (requests || [])
-      .filter((r) => ["accepted", "scheduled"].includes((r.status || "").toLowerCase()))
-      .map((r) => ({
-        id: r.id,
-        title: `${r.service || "Service"} - ${r.location || "Location"}`,
-        time: r.preferredTime || "Scheduled",
-        status: (r.status || "scheduled").toLowerCase()
-      }));
-  }, [requests]);
+  useEffect(() => {
+    const uid = auth.currentUser?.uid || profile?.id || "";
+    if (!uid) {
+      setNotifications([]);
+      setNotificationsLoading(false);
+      return;
+    }
 
-  const notifications = [
-    { id: 1, title: "Schedule updated", body: "Saturday slot moved to 3:00 PM.", when: "5m ago" },
-    { id: 2, title: "Payment reminder", body: "Payout for REQ-8620 releases tomorrow.", when: "1h ago" },
-  ];
+    setNotificationsLoading(true);
+    const notifRef = rtdbRef(rtdb, `UserNotifications/${uid}`);
+    const stop = onValue(
+      notifRef,
+      (snap) => {
+        const val = snap.val() || {};
+        const list = Object.entries(val).map(([id, data]) => ({
+          id,
+          ...(data || {}),
+          createdAt: data?.createdAt || 0
+        }));
+        list.sort((a, b) => (Number(b.createdAt || 0) || 0) - (Number(a.createdAt || 0) || 0));
+        setNotifications(list.slice(0, 25));
+        setNotificationsLoading(false);
+      },
+      () => setNotificationsLoading(false)
+    );
+
+    return () => stop();
+  }, [profile?.id]);
+ 
+  const tasks = useMemo(() => { 
+    return (requests || []) 
+      .filter((r) => ["accepted", "scheduled"].includes(String(r.status || "").toLowerCase())) 
+      .map((r) => ({ 
+        id: r.id, 
+        title: `${r.serviceType || r.service || "Service"} - ${r.location || "Location"}`, 
+        time: r.startDate || r.preferredTime || "Scheduled", 
+        status: String(r.status || "scheduled").toLowerCase() 
+      })); 
+  }, [requests]); 
 
   const history = [
     { id: "H-441", job: "Housecleaning - Lucao", date: "Mar 05", hours: "3.0", payout: "PHP 950", status: "paid" },
@@ -133,10 +232,119 @@ function Staff() {
     { id: "H-443", job: "Laundry - Downtown", date: "Mar 03", hours: "2.0", payout: "PHP 600", status: "paid" },
   ];
 
-  const handleRequestAction = async (id, statusValue) => {
+  const handleRequestAction = async (req, statusValue) => { 
+    const id = req?.id;
+    if (!id) return; 
+    const statusUpper = String(statusValue || "PENDING").toUpperCase();
+    const payload = {
+      status: statusUpper,
+      updatedAt: rtdbServerTimestamp()
+    };
+
+    if (statusUpper === "CONFIRMED") {
+      payload.confirmedAt = rtdbServerTimestamp();
+      payload.confirmedById = profile?.id || auth.currentUser?.uid || "";
+      payload.confirmedByName = displayName;
+    } else if (statusUpper === "ACCEPTED") {
+      payload.acceptedAt = rtdbServerTimestamp();
+      payload.housekeeperId = profile?.id || auth.currentUser?.uid || "";
+      payload.housekeeperName = displayName;
+      payload.housekeeperRole = String(profile?.role || "staff");
+    } else if (statusUpper === "DECLINED") {
+      payload.declinedAt = rtdbServerTimestamp();
+      payload.declinedById = profile?.id || auth.currentUser?.uid || "";
+      payload.declinedByName = displayName;
+    }
+
+    await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), payload);
+
+    const customerId = String(req?.householderId || "").trim();
+    const serviceLabel = String(req?.serviceType || req?.service || "Service request");
+    const timeLabel = String(req?.startDate || req?.preferredTime || "").trim();
+
+    if (statusUpper === "CONFIRMED") {
+      await sendNotification({
+        toUserId: customerId,
+        requestId: id,
+        title: "Request confirmed",
+        body: `${serviceLabel}${timeLabel ? ` • ${timeLabel}` : ""} is confirmed. Waiting for staff/housekeeper acceptance.`
+      });
+
+      const assignedHousekeeperId = String(req?.housekeeperId || "").trim();
+      if (assignedHousekeeperId) {
+        await sendNotification({
+          toUserId: assignedHousekeeperId,
+          requestId: id,
+          title: "Request ready to accept",
+          body: `${serviceLabel}${timeLabel ? ` - ${timeLabel}` : ""} was confirmed. Please accept it when ready.`
+        });
+      }
+    } else if (statusUpper === "ACCEPTED") {
+      await sendNotification({
+        toUserId: customerId,
+        requestId: id,
+        title: "Request accepted",
+        body: `${displayName} accepted your request${timeLabel ? ` • ${timeLabel}` : ""}.`
+      });
+    } else if (statusUpper === "DECLINED") {
+      await sendNotification({
+        toUserId: customerId,
+        requestId: id,
+        title: "Request declined",
+        body: `${serviceLabel} was declined. You can submit a new request.`
+      });
+    }
+  }; 
+
+  const handleComplete = async (req) => {
+    const id = req?.id;
     if (!id) return;
-    const reqRef = ref(rtdb, `Requests/${id}`);
-    await update(reqRef, { status: statusValue });
+    const method = String(paymentMethodByRequestId[id] || "").trim();
+    if (!method) return;
+
+    await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+      status: "COMPLETED",
+      completedAt: rtdbServerTimestamp(),
+      completedById: profile?.id || auth.currentUser?.uid || "",
+      completedByName: displayName,
+      paymentMethod: method,
+      updatedAt: rtdbServerTimestamp()
+    });
+
+    const customerId = String(req?.householderId || "").trim();
+    const serviceLabel = String(req?.serviceType || req?.service || "Service request");
+    await sendNotification({
+      toUserId: customerId,
+      requestId: id,
+      title: "Service completed",
+      body: `${serviceLabel} is completed. Payment method: ${method}.`
+    });
+  };
+
+  const formatWhenShort = (value) => {
+    const ms = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(ms) || ms <= 0) return "Just now";
+    const diff = Date.now() - ms;
+    const s = Math.max(0, Math.floor(diff / 1000));
+    if (s < 60) return `${s}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    return `${d}d ago`;
+  };
+
+  const markAllRead = async () => {
+    const uid = auth.currentUser?.uid || profile?.id || "";
+    if (!uid) return;
+    const unread = (notifications || []).filter((n) => n && n.read !== true);
+    if (!unread.length) return;
+    const updates = {};
+    unread.forEach((n) => {
+      updates[`UserNotifications/${uid}/${n.id}/read`] = true;
+    });
+    await rtdbUpdate(rtdbRef(rtdb), updates);
   };
 
   return (
@@ -313,7 +521,9 @@ function Staff() {
               <h2>Your day, simplified</h2>
               <p className="muted">Accept, schedule, and secure payouts with privacy-first controls.</p>
               <div className="staff-hero-actions">
-                <button className="btn primary">Clock in</button>
+                <button className="btn primary" type="button" disabled={showGuest || !isStaffRole} onClick={toggleClockIn}>
+                  {isClockedIn ? "Clock out" : "Clock in"}
+                </button>
                 <button className="btn ghost">Update availability</button>
               </div>
               <div className="hero-stats">
@@ -382,41 +592,130 @@ function Staff() {
                   No requests yet. Customer submissions from /customer land here in real time.
                 </div>
               ) : (
-                requests.map((r) => (
-                  <div key={r.id} className={`board-row ${r.status || "pending"}`}>
-                    <div className="row-main">
-                      <div className="avatar-pill alt">{(r.customer || "??").slice(0, 2).toUpperCase()}</div>
-                      <div>
-                        <strong>{r.service || "Service request"}</strong>
-                        <p className="muted small">
-                          {r.customer || "Customer"} • {r.location || "Location"}
-                        </p>
-                        {r.preferredTime && <p className="tiny muted">{r.preferredTime}</p>}
-                        {r.notes && <p className="tiny muted">{r.notes}</p>}
+                requests
+                  .filter((r) => {
+                    const myId = profile?.id || auth.currentUser?.uid || "";
+                    if (isHousekeeper) {
+                      const assignedId = String(r.housekeeperId || "").trim();
+                      const statusLower = String(r.status || "PENDING").toLowerCase();
+                      const isVisible = ["pending", "confirmed", "accepted", "completed"].includes(statusLower);
+                      if (!isVisible) return false;
+                      return Boolean(myId) && assignedId === myId;
+                    }
+                    return true;
+                  })
+                  .map((r) => {
+                    const statusClass = String(r.status || "PENDING").toLowerCase();
+                    const isPending = statusClass === "pending";
+                    const isConfirmed = statusClass === "confirmed";
+                    const isAccepted = statusClass === "accepted";
+                    const customerName = r.householderName || r.customer || "Customer";
+                    const serviceLabel = r.serviceType || r.service || "Service request";
+                    const timeLabel = r.startDate || r.preferredTime || "";
+                    const assignedId = String(r.housekeeperId || "").trim();
+                    const assignedName = String(r.housekeeperName || "").trim();
+                    const assignedRole = String(r.housekeeperRole || "").trim();
+                    const myId = profile?.id || auth.currentUser?.uid || "";
+                    const canActOnThis = !assignedId || (Boolean(myId) && assignedId === myId);
+                    const canConfirm = isStaffManager && isPending;
+                    const canAccept =
+                      ((isStaffManager && isConfirmed) || (isHousekeeper && isConfirmed)) && canActOnThis;
+                    const canDecline =
+                      ((isStaffManager && (isPending || isConfirmed)) || (isHousekeeper && isConfirmed)) &&
+                      canActOnThis;
+                    const canComplete =
+                      (isStaffManager || isHousekeeper) && isAccepted && canActOnThis;
+                    const payoutLabel =
+                      typeof r.totalPrice === "number" && Number.isFinite(r.totalPrice) && r.totalPrice > 0
+                        ? `PHP ${Math.round(r.totalPrice).toLocaleString()}`
+                        : r.payout || "PHP --";
+                  const photoUrls = Array.isArray(r.photos)
+                    ? r.photos
+                    : Array.isArray(r.images)
+                      ? r.images
+                      : Array.isArray(r.pictures)
+                        ? r.pictures
+                        : [];
+
+                  return (
+                    <div key={r.id} className={`board-row ${statusClass}`}>
+                      <div className="row-main">
+                        <div className="avatar-pill alt">
+                          {String(customerName || "??").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <strong>{serviceLabel}</strong>
+                          <p className="muted small">
+                            {customerName} • {r.location || "Location"}
+                          </p>
+                          {timeLabel && <p className="tiny muted">{timeLabel}</p>}
+                          {assignedId && (
+                            <p className="tiny muted">
+                              Assigned to: {assignedName || assignedId}
+                              {assignedRole ? ` (${assignedRole})` : ""}
+                            </p>
+                          )}
+                          {r.notes && <p className="tiny muted">{r.notes}</p>}
+                          {photoUrls.length > 0 && (
+                            <div className="req-photos" aria-label="Request photos">
+                              {photoUrls.slice(0, 3).map((u) => (
+                                <img key={u} src={u} alt="Request" loading="lazy" />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="row-meta actions">
+                        <span className="payout">{payoutLabel}</span>
+                        {canComplete ? (
+                          <>
+                            <select
+                              value={String(paymentMethodByRequestId[r.id] || "")}
+                              onChange={(e) =>
+                                setPaymentMethodByRequestId((prev) => ({ ...prev, [r.id]: e.target.value }))
+                              }
+                            >
+                              <option value="">Payment method</option>
+                              <option value="Cash">Cash</option>
+                              <option value="GCash">GCash</option>
+                              <option value="Bank Transfer">Bank Transfer</option>
+                            </select>
+                            <button
+                              className="btn pill primary small"
+                              type="button"
+                              disabled={!paymentMethodByRequestId[r.id]}
+                              onClick={() => handleComplete(r)}
+                            >
+                              Complete
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              className="icon-btn ghost danger"
+                              aria-label="Decline"
+                              disabled={!canDecline}
+                              onClick={() => handleRequestAction(r, "DECLINED")}
+                            >
+                              <i className="fas fa-times"></i>
+                            </button>
+                            <button
+                              className="icon-btn ghost"
+                              aria-label={canConfirm ? "Confirm" : "Accept"}
+                              disabled={!(canConfirm || canAccept)}
+                              onClick={() => handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED")}
+                            >
+                              <i className={`fas ${canConfirm ? "fa-stamp" : "fa-check"}`}></i>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <div className="row-meta actions">
-                      <span className="payout">{r.payout || "PHP --"}</span>
-                      <button
-                        className="icon-btn ghost danger"
-                        aria-label="Decline"
-                        onClick={() => handleRequestAction(r.id, "declined")}
-                      >
-                        <i className="fas fa-times"></i>
-                      </button>
-                      <button
-                        className="icon-btn ghost"
-                        aria-label="Accept"
-                        onClick={() => handleRequestAction(r.id, "accepted")}
-                      >
-                        <i className="fas fa-check"></i>
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
+                  );
+                })
+              )} 
+            </div> 
+          </section> 
 
           <section className="panel card calendar-card" id="calendar">
             <div className="panel-header">
@@ -470,18 +769,38 @@ function Staff() {
                 <p className="eyebrow">Notifications</p>
                 <h4>Latest</h4>
               </div>
-              <button className="btn pill ghost">Mark all read</button>
+              <button
+                className="btn pill ghost"
+                type="button"
+                disabled={notificationsLoading || notifications.length === 0}
+                onClick={markAllRead}
+              >
+                Mark all read
+              </button>
             </div>
             <div className="notification-list">
-              {notifications.map((n) => (
-                <div key={n.id} className="notification-item unread fade-in">
-                  <div className="notification-top">
-                    <span className="notification-title">{n.title}</span>
-                    <span className="muted tiny">{n.when}</span>
-                  </div>
-                  <p className="notification-body">{n.body}</p>
+              {notificationsLoading ? (
+                <div className="notification-item">
+                  <p className="muted small">Loading notifications...</p>
                 </div>
-              ))}
+              ) : notifications.length === 0 ? (
+                <div className="notification-item">
+                  <p className="muted small">No notifications yet.</p>
+                </div>
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`notification-item ${n.read === true ? "read" : "unread"} fade-in`}
+                  >
+                    <div className="notification-top">
+                      <span className="notification-title">{n.title || "Update"}</span>
+                      <span className="muted tiny">{formatWhenShort(n.createdAt)}</span>
+                    </div>
+                    <p className="notification-body">{n.body || ""}</p>
+                  </div>
+                ))
+              )}
             </div>
           </section>
 

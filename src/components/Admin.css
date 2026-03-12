@@ -3036,16 +3036,16 @@ html.dark-mode .form-grid select {
   border-bottom: 1px solid #e5e7eb;
 }
 
-.team-table th,
-.team-table td {
-  padding: 14px 16px;
-  font-size: 14px;
-  border-bottom: 1px solid #f1f3f5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
+.team-table th, 
+.team-table td { 
+  padding: 14px 10px; 
+  font-size: 14px; 
+  border-bottom: 1px solid #f1f3f5; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap; 
+  vertical-align: middle; 
+} 
 
 .team-table tbody tr:last-child td {
   border-bottom: none;
@@ -3072,12 +3072,17 @@ html.dark-mode .form-grid select {
   box-shadow: inset 3px 0 0 #13829f;
 }
 
-.team-table .col-name { width: 42%; text-align: left;}
-.team-table .col-name { white-space: normal; overflow: visible; }
-.team-table .col-status { width: 16%; text-align: center; }
-.team-table .col-role { width: 18%; text-align: center;}
-.team-table .col-actions { width: 15%; min-width: 140px; text-align: center; }
-.team-table .fit { width: 6%; text-align: center; }
+.team-table .col-name { width: 43%; text-align: left;} 
+.team-table .col-name { white-space: normal; overflow: visible; } 
+.team-table td.col-name { 
+  overflow: visible; 
+  text-overflow: clip; 
+} 
+.team-table td.col-name .user-name.compact { align-items: flex-start; } 
+.team-table .col-status { width: 16%; text-align: center; } 
+.team-table .col-role { width: 18%; text-align: center;} 
+.team-table .col-actions { width: 15%; min-width: 140px; text-align: center; } 
+.team-table .fit { width: 6%; text-align: center; } 
 
 .status-chip {
   display: inline-flex;
@@ -3139,26 +3144,33 @@ html.dark-mode .form-grid select {
   gap: 10px;
 }
 
-.user-name.compact .user-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-}
+.user-name.compact .user-avatar { 
+  width: 38px; 
+  height: 38px; 
+  border-radius: 50%; 
+  line-height: 1; 
+} 
+ 
+.user-name.compact .user-meta { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 2px; 
 
-.user-name.compact .user-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+} 
+ 
+.user-name.compact .user-meta strong { 
+  font-size: 14px; 
+  color: #0f172a; 
+  line-height: 1.15;
+  white-space: normal;
+  word-break: break-word;
+} 
+.user-name.compact .user-meta .user-email { 
+  font-size: 12px; 
+  color: #6b7280; 
+  line-height: 1.15;
 
-.user-name.compact .user-meta strong {
-  font-size: 14px;
-  color: #0f172a;
-}
-.user-name.compact .user-meta .user-email {
-  font-size: 12px;
-  color: #6b7280;
-}
+} 
 
 .profile-modal {
   position: fixed;
@@ -3306,11 +3318,6 @@ html.dark-mode .form-grid select {
 
 .profile-card p strong {
   color: #0f5f7a;
-}
-
-.profile-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.08);
 }
 
 .profile-side {

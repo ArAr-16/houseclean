@@ -530,9 +530,25 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   color: #0f172a;
 }
 
-.payout {
-  font-weight: 700;
-  color: #0f2e4d;
+.payout { 
+  font-weight: 700; 
+  color: #0f2e4d; 
+} 
+
+.req-photos {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.req-photos img {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid #e6ecf5;
+  background: #fff;
 }
 
 .calendar-card .legend {

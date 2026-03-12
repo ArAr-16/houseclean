@@ -128,19 +128,47 @@ const serviceAreaOptions = [
   "Tebeng"
 ];
 
-function ManageUsers() {
-  const [staff, setStaff] = useState(sampleStaff);
-  const [search, setSearch] = useState("");
-  const [showModal, setShowModal] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [showPwd, setShowPwd] = useState(false);
-  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
-  const [formErrors, setFormErrors] = useState({});
-  const [selected, setSelected] = useState(sampleStaff[0]);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [roleFilter, setRoleFilter] = useState("all");
-  const [currentUser, setCurrentUser] = useState(null);
+function ManageUsers() { 
+  const [staff, setStaff] = useState(sampleStaff); 
+  const [search, setSearch] = useState(""); 
+  const [showModal, setShowModal] = useState(false); 
+  const [showProfile, setShowProfile] = useState(false); 
+  const [form, setForm] = useState(emptyForm); 
+  const [showPwd, setShowPwd] = useState(false); 
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false); 
+  const [formErrors, setFormErrors] = useState({}); 
+  const [selected, setSelected] = useState(sampleStaff[0]); 
+  const [statusFilter, setStatusFilter] = useState("all"); 
+  const [roleFilter, setRoleFilter] = useState("all"); 
+  const [currentUser, setCurrentUser] = useState(null); 
+
+  const buildDisplayName = (user) => {
+    const full = String(user?.fullName || user?.name || "").replace(/\s+/g, " ").trim();
+    if (full) return full;
+    const first = String(user?.firstName || "").trim();
+    const last = String(user?.lastName || "").trim();
+    const joined = `${first} ${last}`.replace(/\s+/g, " ").trim();
+    if (joined) return joined;
+    const email = String(user?.email || "").trim();
+    return email || "Unnamed";
+  };
+
+  const buildInitials = (user) => {
+    const first = String(user?.firstName || "").trim();
+    const last = String(user?.lastName || "").trim();
+    if (first && last) return `${first[0]}${last[0]}`.toUpperCase();
+
+    const base = buildDisplayName(user);
+    const words = String(base || "")
+      .replace(/[^A-Za-z0-9 ]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+    const flat = words.join("");
+    return (flat || "NA").slice(0, 2).toUpperCase();
+  };
   const toggleArea = (area) => {
     setForm((prev) => {
       const list = prev.serviceAreas || [];
@@ -178,18 +206,21 @@ function ManageUsers() {
     [staff]
   );
 
-  const filteredStaff = useMemo(() => {
-    const term = search.toLowerCase();
-    const results = staff.filter((s) => {
-      const skills = Array.isArray(s.skills) ? s.skills : [];
-      const areas = Array.isArray(s.serviceAreas) ? s.serviceAreas : [];
-      const combined = [
-        s.fullName,
-        s.email,
-        s.contact,
-        skills.join(" "),
-        areas.join(" "),
-        s.preferredService,
+  const filteredStaff = useMemo(() => { 
+    const term = search.toLowerCase(); 
+    const results = staff.filter((s) => { 
+      const skills = Array.isArray(s.skills) ? s.skills : []; 
+      const areas = Array.isArray(s.serviceAreas) ? s.serviceAreas : []; 
+      const combined = [ 
+        s.fullName, 
+        s.firstName,
+        s.lastName,
+        s.name,
+        s.email, 
+        s.contact, 
+        skills.join(" "), 
+        areas.join(" "), 
+        s.preferredService, 
         s.role,
       ]
         .join(" ")
@@ -427,27 +458,15 @@ function ManageUsers() {
 
   const normalizeRole = (value) => String(value || "").trim().toLowerCase();
   const selectedRole = normalizeRole(selected?.role);
-  const selectedProfileType =
-    selectedRole === "admin"
-      ? "admin"
-      : ["housekeeper", "staff"].includes(selectedRole)
-        ? "housekeeper"
-        : "householder";
-
-  const selectedDisplayName = (() => {
-    const full = String(selected?.fullName || "").trim();
-    if (full) return full;
-    const first = String(selected?.firstName || "").trim();
-    const last = String(selected?.lastName || "").trim();
-    const joined = `${first} ${last}`.replace(/\s+/g, " ").trim();
-    return joined || String(selected?.email || "Unnamed");
-  })();
-
-  const selectedInitials = (selectedDisplayName || "NA")
-    .replace(/[^A-Za-z0-9 ]/g, "")
-    .trim()
-    .slice(0, 2)
-    .toUpperCase();
+  const selectedProfileType = 
+    selectedRole === "admin" 
+      ? "admin" 
+      : ["housekeeper", "staff"].includes(selectedRole) 
+        ? "housekeeper" 
+        : "householder"; 
+ 
+  const selectedDisplayName = buildDisplayName(selected);
+  const selectedInitials = buildInitials(selected);
 
   const selectedPhone = selected?.phone || selected?.contact || "-----";
   const selectedLocation = (() => {
@@ -559,30 +578,37 @@ function ManageUsers() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredStaff.length ? (
-                      filteredStaff.map((s, idx) => (
-                        <tr
-                          key={s.id}
-                          className={`team-row ${selected?.id === s.id ? "selected" : ""}`}
-                          onClick={() => {
-                            setSelected(s);
+                    {filteredStaff.length ? ( 
+                      filteredStaff.map((s, idx) => ( 
+                        (() => {
+                          const rowName = buildDisplayName(s);
+                          const rowInitials = buildInitials(s);
+                          const rowEmail = String(s.email || "").trim();
+                          const rowEmailLabel = rowEmail || "—";
+ 
+                          return (
+                        <tr 
+                          key={s.id} 
+                          className={`team-row ${selected?.id === s.id ? "selected" : ""}`} 
+                          onClick={() => { 
+                            setSelected(s); 
                             setShowModal(false);
                             setShowProfile(true);
                           }}
-                        >
-                          <td className="fit">{idx + 1}</td>
-                          <td className="user-name compact col-name">
-                            <span className="user-avatar">
-                              {s.fullName ? s.fullName.slice(0, 2).toUpperCase() : "NA"}
-                            </span>
-                            <div className="user-meta">
-                              <strong>{s.fullName}</strong>
-                              <span className="user-email">{s.email}</span>
-                            </div>
-                          </td>
-                          <td className="col-status">
-                            <span className={`status-chip ${s.status}`}>
-                              {s.status === "active" && "Active"}
+                          > 
+                          <td className="fit">{idx + 1}</td> 
+                          <td className="user-name compact col-name"> 
+                            <span className="user-avatar"> 
+                              {rowInitials} 
+                            </span> 
+                            <div className="user-meta"> 
+                              <strong>{rowName}</strong> 
+                              <span className="user-email">{rowEmailLabel}</span> 
+                            </div> 
+                          </td> 
+                          <td className="col-status"> 
+                            <span className={`status-chip ${s.status}`}> 
+                              {s.status === "active" && "Active"} 
                               {s.status === "pending" && "Pending"}
                               {s.status === "disabled" && "Disabled"}
                             </span>
@@ -625,14 +651,16 @@ function ManageUsers() {
                               }}
                             >
                               <i className="fas fa-trash-alt"></i>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="5" className="no-results">
-                          No staff found.
+                            </button> 
+                          </td> 
+                        </tr> 
+                          );
+                        })()
+                      )) 
+                    ) : ( 
+                      <tr> 
+                        <td colSpan="5" className="no-results"> 
+                          No staff found. 
                         </td>
                       </tr>
                     )}

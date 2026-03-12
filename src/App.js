@@ -15,7 +15,12 @@ import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Staff from "./pages/Staff";
-import Customer from "./pages/Customer";
+import Customer from "./pages/customer/Customer";
+import CustomerSettings from "./pages/customer/CustomerSettings";
+import CustomerRequests from "./pages/customer/CustomerRequests";
+import CustomerPayments from "./pages/customer/CustomerPayments";
+import CustomerHistoryPage from "./pages/customer/CustomerHistoryPage";
+import CustomerNotificationsPage from "./pages/customer/CustomerNotificationsPage";
 import Dashboard from "./pages/admin/Dashboard";
 import ManageUsers from "./pages/admin/ManageUsers";
 import History from "./pages/admin/History";
@@ -132,7 +137,17 @@ function AppContent() {
                 <Route path="/blog" element={<Blog />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/customer" element={<Customer />} />
+                <Route path="/customer/requests" element={<CustomerRequests />} />
+                <Route path="/customer/payments" element={<CustomerPayments />} />
+                <Route path="/customer/history" element={<CustomerHistoryPage />} />
+                <Route path="/customer/notifications" element={<CustomerNotificationsPage />} />
+                <Route path="/customer/settings" element={<CustomerSettings />} />
                 <Route path="/householder" element={<Customer />} />
+                <Route path="/householder/requests" element={<CustomerRequests />} />
+                <Route path="/householder/payments" element={<CustomerPayments />} />
+                <Route path="/householder/history" element={<CustomerHistoryPage />} />
+                <Route path="/householder/notifications" element={<CustomerNotificationsPage />} />
+                <Route path="/householder/settings" element={<CustomerSettings />} />
                 <Route path="/staff" element={<Staff />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
