@@ -14,7 +14,11 @@ import Blog from "./pages/Blog";
 import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Staff from "./pages/Staff";
+import StaffDashboard from "./pages/staff/StaffDashboard";
+import StaffRequests from "./pages/staff/StaffRequests";
+import StaffSchedule from "./pages/staff/StaffSchedule";
+import StaffHistory from "./pages/staff/StaffHistory";
+import StaffSettings from "./pages/staff/StaffSettings";
 import Customer from "./pages/customer/Customer";
 import CustomerSettings from "./pages/customer/CustomerSettings";
 import CustomerRequests from "./pages/customer/CustomerRequests";
@@ -120,7 +124,11 @@ function AppContent() {
           <div className="main-content">
             <main>
               <Routes>
-                <Route path="/staff" element={<Staff />} />
+                <Route path="/staff" element={<StaffDashboard />} />
+                <Route path="/staff/requests" element={<StaffRequests />} />
+                <Route path="/staff/schedule" element={<StaffSchedule />} />
+                <Route path="/staff/history" element={<StaffHistory />} />
+                <Route path="/staff/settings" element={<StaffSettings />} />
               </Routes>
             </main>
           </div>
@@ -148,7 +156,11 @@ function AppContent() {
                 <Route path="/householder/history" element={<CustomerHistoryPage />} />
                 <Route path="/householder/notifications" element={<CustomerNotificationsPage />} />
                 <Route path="/householder/settings" element={<CustomerSettings />} />
-                <Route path="/staff" element={<Staff />} />
+                <Route path="/staff" element={<StaffDashboard />} />
+                <Route path="/staff/requests" element={<StaffRequests />} />
+                <Route path="/staff/schedule" element={<StaffSchedule />} />
+                <Route path="/staff/history" element={<StaffHistory />} />
+                <Route path="/staff/settings" element={<StaffSettings />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
               </Routes>

@@ -14,7 +14,7 @@
   justify-content: center;
   box-shadow: 0 -6px 20px #aaaaaa;
   transition: background-color 0.3s ease, color 0.3s ease;
-  margin-top: auto;
+  margin-top: 5rem;
 }
 
 html.dark-mode .footer {

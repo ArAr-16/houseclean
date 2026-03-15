@@ -21,10 +21,16 @@ function Login() {
 
   const handleChange = (e) => {
     setError('');
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    if (name === "password") {
+      const cleaned = value.replace(/\s/g, "");
+      if (cleaned.length !== value.length) {
+        setError("Password cannot contain spaces.");
+      }
+      setFormData({ ...formData, [name]: cleaned });
+      return;
+    }
+    setFormData({ ...formData, [name]: value });
   };
 
   const handleSubmit = async (e) => {
@@ -34,7 +40,12 @@ function Login() {
     setError('');
     try {
       const email = formData.email.trim();
-      const password = formData.password.trim();
+      const password = formData.password;
+      if (/\s/.test(password)) {
+        setIsLoading(false);
+        setError("Password cannot contain spaces.");
+        return;
+      }
       await setPersistence(auth, browserSessionPersistence);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
@@ -149,6 +160,7 @@ function Login() {
                   <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
                 </button>
               </div>
+
             </div>
             <button type="submit" className="submit-btn">Sign In</button>
           </form>

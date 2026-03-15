@@ -102,6 +102,10 @@ function Settings() {
       const trimmedEmail = form.email.trim();
       const wantsEmailChange = trimmedEmail && trimmedEmail !== currentUser.email;
       const wantsPasswordChange = Boolean(form.newPassword);
+      if (/\s/.test(form.currentPassword) || /\s/.test(form.newPassword) || /\s/.test(form.confirmPassword)) {
+        setStatus("Password cannot contain spaces");
+        return;
+      }
 
       // Require reauth for sensitive ops
       if (wantsEmailChange || wantsPasswordChange) {
@@ -208,7 +212,7 @@ function Settings() {
                     onChange={(e) =>
                       setForm((prev) => ({
                         ...prev,
-                        currentPassword: e.target.value,
+                        currentPassword: e.target.value.replace(/\s/g, ""),
                       }))
                     }
                   />
@@ -223,6 +227,7 @@ function Settings() {
                     <i className={`fas ${showPwd.current ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
                 </div>
+
               </label>
               <label>
                 New password
@@ -232,7 +237,7 @@ function Settings() {
                     placeholder="••••••••"
                     value={form.newPassword}
                     onChange={(e) =>
-                      setForm((prev) => ({ ...prev, newPassword: e.target.value }))
+                      setForm((prev) => ({ ...prev, newPassword: e.target.value.replace(/\s/g, "") }))
                     }
                   />
                   <button
@@ -246,6 +251,7 @@ function Settings() {
                     <i className={`fas ${showPwd.new ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
                 </div>
+
               </label>
               <label>
                 Confirm password
@@ -257,7 +263,7 @@ function Settings() {
                     onChange={(e) =>
                       setForm((prev) => ({
                         ...prev,
-                        confirmPassword: e.target.value,
+                        confirmPassword: e.target.value.replace(/\s/g, ""),
                       }))
                     }
                   />
@@ -275,6 +281,7 @@ function Settings() {
                     <i className={`fas ${showPwd.confirm ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
                 </div>
+ 
               </label>
             </div>
             <div className="settings-actions">

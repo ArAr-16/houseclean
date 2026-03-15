@@ -9,6 +9,8 @@ const sampleStaff = [
   {
     id: "stf-001",
     fullName: "Arly Baldonasa",
+    firstName: "Arly",
+    lastName: "Baldonasa",
     role: "Admin",
     dob: "1998-04-21",
     contact: "09171234567",
@@ -27,7 +29,6 @@ const sampleStaff = [
     phoneModel: "Samsung A54",
     bankAccount: "BPI ••4321",
     emergency: "Maria Baldonasa - 09179998888",
-    uniformSize: "M",
     serviceAreas: ["Downtown Dagupan", "Calasiao", "Bonuan"],
     status: "active",
     joined: "2026-02-10",
@@ -35,6 +36,8 @@ const sampleStaff = [
   {
     id: "stf-002",
     fullName: "Juno Dela Cruz",
+    firstName: "Juno",
+    lastName: "Dela Cruz",
     role: "Housekeeper",
     dob: "1996-12-02",
     contact: "09175551234",
@@ -53,7 +56,6 @@ const sampleStaff = [
     phoneModel: "OPPO Reno 8",
     bankAccount: "GCash ••7788",
     emergency: "Rica Dela Cruz - 09170001111",
-    uniformSize: "L",
     serviceAreas: ["Downtown Dagupan", "Calasiao", "Mangaldan"],
     status: "pending",
     joined: "2026-03-01",
@@ -62,6 +64,8 @@ const sampleStaff = [
 
 const emptyForm = {
   fullName: "",
+  firstName: "",
+  lastName: "",
   dob: "",
   contact: "",
   email: "",
@@ -79,7 +83,6 @@ const emptyForm = {
   phoneModel: "",
   bankAccount: "",
   emergency: "",
-  uniformSize: "",
   serviceAreas: [],
   role: "Housekeeper",
   otherSkill: "",
@@ -265,6 +268,8 @@ function ManageUsers() {
   const validateForm = () => {
     const errs = {};
     const fullName = form.fullName.trim();
+    const firstName = form.firstName.trim();
+    const lastName = form.lastName.trim();
     const contact = form.contact.trim();
     const email = form.email.trim();
     const barangay = form.barangay.trim();
@@ -274,10 +279,18 @@ function ManageUsers() {
     const phonePattern = /^09\d{9}$/;
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-    if (!fullName) {
-      errs.fullName = "Full name is required";
-    } else if (fullName.length < 2 || fullName.length > 60) {
-      errs.fullName = "Full name must be 2-60 characters";
+    if (!firstName) {
+      errs.firstName = "First name is required";
+    } else if (firstName.length < 2 || firstName.length > 40) {
+      errs.firstName = "First name must be 2-40 characters";
+    }
+    if (!lastName) {
+      errs.lastName = "Last name is required";
+    } else if (lastName.length < 2 || lastName.length > 40) {
+      errs.lastName = "Last name must be 2-40 characters";
+    }
+    if (fullName && fullName.length > 60) {
+      errs.fullName = "Full name must be under 60 characters";
     }
     if (!contact) {
       errs.contact = "Contact number is required";
@@ -307,11 +320,6 @@ function ManageUsers() {
     if (form.experience && form.experience.length > 160) {
       errs.experience = "Experience must be under 160 characters";
     }
-    if (!preferred) {
-      errs.preferredService = "Preferred service is required";
-    } else if (preferred.length > 80) {
-      errs.preferredService = "Preferred service must be under 80 characters";
-    }
     if (form.availability && form.availability.length > 80) {
       errs.availability = "Availability must be under 80 characters";
     }
@@ -321,17 +329,11 @@ function ManageUsers() {
     if (form.healthCert && form.healthCert.length > 80) {
       errs.healthCert = "Health certificate must be under 80 characters";
     }
-    if (form.phoneModel && form.phoneModel.length > 40) {
-      errs.phoneModel = "Phone model must be under 40 characters";
-    }
     if (form.bankAccount && form.bankAccount.length > 40) {
       errs.bankAccount = "Bank account must be under 40 characters";
     }
     if (form.emergency && form.emergency.length > 80) {
       errs.emergency = "Emergency contact must be under 80 characters";
-    }
-    if (form.uniformSize && form.uniformSize.length > 10) {
-      errs.uniformSize = "Uniform size must be under 10 characters";
     }
     if (form.skills.length === 0) errs.skills = "Select at least one skill";
     if (form.skills.includes("Other") && !form.otherSkill.trim()) {
@@ -342,11 +344,15 @@ function ManageUsers() {
     if (form.serviceAreas.length === 0) errs.serviceAreas = "Select at least one service area";
     if (!password) {
       errs.password = "Password is required";
+    } else if (/\s/.test(password)) {
+      errs.password = "Password cannot contain spaces";
     } else if (password.length < 8 || password.length > 32) {
       errs.password = "Password must be 8-32 characters";
     }
     if (!confirmPassword) {
       errs.confirmPassword = "Confirm your password";
+    } else if (/\s/.test(confirmPassword)) {
+      errs.confirmPassword = "Password cannot contain spaces";
     } else if (confirmPassword !== password) {
       errs.confirmPassword = "Passwords do not match";
     }
@@ -363,8 +369,9 @@ function ManageUsers() {
         form.email.trim(),
         form.password
       );
-      if (form.fullName.trim()) {
-        await updateProfile(cred.user, { displayName: form.fullName.trim() });
+      const fullName = form.fullName.trim() || `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
+      if (fullName) {
+        await updateProfile(cred.user, { displayName: fullName });
       }
       const uid = cred.user.uid;
       const finalSkills =
@@ -374,7 +381,9 @@ function ManageUsers() {
       const { confirmPassword, password, ...cleanForm } = form;
       const newStaff = {
         ...cleanForm,
-        fullName: form.fullName.trim(),
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        fullName,
         contact: form.contact.trim(),
         email: form.email.trim(),
         barangay: form.barangay.trim(),
@@ -401,6 +410,32 @@ function ManageUsers() {
     if (status === "active") return "badge-success";
     if (status === "pending") return "badge-warning";
     return "badge-error";
+  };
+
+  const formatSectionErrors = (fields) => {
+    const labels = {
+      firstName: "First name",
+      lastName: "Last name",
+      contact: "Contact number",
+      email: "Email address",
+      password: "Password",
+      confirmPassword: "Confirm password",
+      address: "Residential address",
+      barangay: "Barangay",
+      govId: "Government ID",
+      experience: "Experience",
+      preferredService: "Preferred service",
+      availability: "Availability",
+      skills: "Skills",
+      certification: "Certification",
+      healthCert: "Health certificate",
+      bankAccount: "Bank account",
+      emergency: "Emergency contact",
+      serviceAreas: "Service area coverage"
+    };
+    const hits = fields.filter((field) => Boolean(formErrors[field]));
+    if (hits.length === 0) return "";
+    return `Please fix: ${hits.map((f) => labels[f] || f).join(", ")}`;
   };
 
   useEffect(() => {
@@ -707,17 +742,60 @@ function ManageUsers() {
             <form className="staff-form" onSubmit={handleSubmit}>
               <section>
                 <h4>Step 1: Personal & City Information</h4>
+                {formatSectionErrors([
+                  "firstName",
+                  "lastName",
+                  "contact",
+                  "email",
+                  "password",
+                  "confirmPassword",
+                  "address",
+                  "barangay",
+                  "govId"
+                ]) && (
+                  <div className="form-error form-error--banner">
+                    {formatSectionErrors([
+                      "firstName",
+                      "lastName",
+                      "contact",
+                      "email",
+                      "password",
+                      "confirmPassword",
+                      "address",
+                      "barangay",
+                      "govId"
+                    ])}
+                  </div>
+                )}
                 <div className="form-grid">
                   
                   <label>
-                    Full Name*
+                    First Name*
                     <input
                       type="text"
-                      maxLength={60}
-                      value={form.fullName}
-                      onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                      maxLength={40}
+                      value={form.firstName}
+                      onChange={(e) => {
+                        const firstName = e.target.value;
+                        const fullName = `${firstName} ${form.lastName}`.replace(/\s+/g, " ").trim();
+                        setForm({ ...form, firstName, fullName });
+                      }}
                     />
-                    {formErrors.fullName && <span className="form-error">{formErrors.fullName}</span>}
+                    {formErrors.firstName && <span className="form-error">{formErrors.firstName}</span>}
+                  </label>
+                  <label>
+                    Last Name*
+                    <input
+                      type="text"
+                      maxLength={40}
+                      value={form.lastName}
+                      onChange={(e) => {
+                        const lastName = e.target.value;
+                        const fullName = `${form.firstName} ${lastName}`.replace(/\s+/g, " ").trim();
+                        setForm({ ...form, lastName, fullName });
+                      }}
+                    />
+                    {formErrors.lastName && <span className="form-error">{formErrors.lastName}</span>}
                   </label>
                   <label>
                     Date of Birth
@@ -754,7 +832,7 @@ function ManageUsers() {
                         type={showPwd ? "text" : "password"}
                         maxLength={32}
                         value={form.password}
-                        onChange={(e) => setForm({ ...form, password: e.target.value })}
+                        onChange={(e) => setForm({ ...form, password: e.target.value.replace(/\s/g, "") })}
                       />
                       <button
                         type="button"
@@ -774,7 +852,7 @@ function ManageUsers() {
                         type={showConfirmPwd ? "text" : "password"}
                         maxLength={32}
                         value={form.confirmPassword}
-                        onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                        onChange={(e) => setForm({ ...form, confirmPassword: e.target.value.replace(/\s/g, "") })}
                       />
                       <button
                         type="button"
@@ -834,6 +912,31 @@ function ManageUsers() {
 
               <section>
                 <h4>Step 2: Professional Details & Compliance</h4>
+                {formatSectionErrors([
+                  "experience",
+                  "preferredService",
+                  "availability",
+                  "skills",
+                  "certification",
+                  "healthCert",
+                  "bankAccount",
+                  "emergency",
+                  "serviceAreas"
+                ]) && (
+                  <div className="form-error form-error--banner">
+                    {formatSectionErrors([
+                      "experience",
+                      "preferredService",
+                      "availability",
+                      "skills",
+                      "certification",
+                      "healthCert",
+                      "bankAccount",
+                      "emergency",
+                      "serviceAreas"
+                    ])}
+                  </div>
+                )}
                 <div className="form-grid">
                   <label className="full">
                     Previous Experience
@@ -883,28 +986,8 @@ function ManageUsers() {
                     </div>
                     {formErrors.skills && <span className="form-error">{formErrors.skills}</span>}
                   </div>
-                  <label>
-                    Preferred Service Category*
-                    <input
-                      type="text"
-                      maxLength={80}
-                      value={form.preferredService}
-                      onChange={(e) => setForm({ ...form, preferredService: e.target.value })}
-                    />
-                    {formErrors.preferredService && (
-                      <span className="form-error">{formErrors.preferredService}</span>
-                    )}
-                  </label>
-                  <label>
-                    Availability (Days/Hours)
-                    <input
-                      type="text"
-                      maxLength={80}
-                      value={form.availability}
-                      onChange={(e) => setForm({ ...form, availability: e.target.value })}
-                    />
-                    {formErrors.availability && <span className="form-error">{formErrors.availability}</span>}
-                  </label>
+                  
+                  
                   <label>
                     Training Completed
                     <select
@@ -943,16 +1026,6 @@ function ManageUsers() {
                     {formErrors.healthCert && <span className="form-error">{formErrors.healthCert}</span>}
                   </label>
                   <label>
-                    Smartphone Model
-                    <input
-                      type="text"
-                      maxLength={40}
-                      value={form.phoneModel}
-                      onChange={(e) => setForm({ ...form, phoneModel: e.target.value })}
-                    />
-                    {formErrors.phoneModel && <span className="form-error">{formErrors.phoneModel}</span>}
-                  </label>
-                  <label>
                     Bank Account Number
                     <input
                       type="text"
@@ -971,16 +1044,6 @@ function ManageUsers() {
                       onChange={(e) => setForm({ ...form, emergency: e.target.value })}
                     />
                     {formErrors.emergency && <span className="form-error">{formErrors.emergency}</span>}
-                  </label>
-                  <label>
-                    Uniform Size
-                    <input
-                      type="text"
-                      maxLength={10}
-                      value={form.uniformSize}
-                      onChange={(e) => setForm({ ...form, uniformSize: e.target.value })}
-                    />
-                    {formErrors.uniformSize && <span className="form-error">{formErrors.uniformSize}</span>}
                   </label>
                   <label className="full">
                     Service Area Coverage (select one or more)*
@@ -1105,11 +1168,9 @@ function ManageUsers() {
                         </div>
                       </div>
                       <div className="profile-card">
-                        <h4>Logistics</h4>
-                        <p><strong>Phone Model:</strong> {selected.phoneModel || "-----"}</p>
+                        <h4>Logistics</h4> 
                         <p><strong>Bank Account:</strong> {selected.bankAccount || "-----"}</p>
                         <p><strong>Emergency Contact:</strong> {selected.emergency || "-----"}</p>
-                        <p><strong>Uniform Size:</strong> {selected.uniformSize || "-----"}</p>
                       </div>
                     </>
                   )}

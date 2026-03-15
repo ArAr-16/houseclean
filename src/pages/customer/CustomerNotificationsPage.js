@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { useCustomerNotifications, useCustomerServiceRequests } from "./customerData";
 
@@ -12,6 +13,7 @@ function formatWhen(value) {
 
 function inferType(n) {
   const text = `${n?.title || ""} ${n?.body || ""}`.toLowerCase();
+  if (text.includes("rate") || text.includes("feedback")) return "feedback";
   if (text.includes("payment") || text.includes("invoice") || text.includes("receipt")) return "payment";
   if (text.includes("schedule") || text.includes("tomorrow") || text.includes("today") || text.includes("upcoming")) return "schedule";
   if (text.includes("request") || text.includes("accepted") || text.includes("completed") || text.includes("pending")) return "request";
@@ -32,6 +34,7 @@ export default CustomerNotificationsPage;
 
 function CustomerNotificationsInner({ filter, setFilter }) {
   const ctx = useCustomerChrome();
+  const navigate = useNavigate();
   const { notifications, loading } = useCustomerNotifications(ctx.authUser?.uid, { limit: 80 });
   const { requests } = useCustomerServiceRequests(ctx.authUser?.uid);
 
@@ -46,6 +49,7 @@ function CustomerNotificationsInner({ filter, setFilter }) {
       const total = typeof r.totalPrice === "number" ? r.totalPrice : Number(r.totalPrice);
       const hasTotal = Number.isFinite(total) && total > 0;
       const unpaid = !r.paidAt && !r.paidVia && !r.paymentId;
+      const feedbackPending = r.feedbackPending === true;
 
       if (hasFutureDate) {
         list.push({
@@ -64,6 +68,17 @@ function CustomerNotificationsInner({ filter, setFilter }) {
           body: `Payment is due for ${r.serviceType || "Service"} (${Math.round(total).toLocaleString()} PHP).`,
           createdAt: r.updatedAt || r.createdAt || 0,
           type: "payment"
+        });
+      }
+
+      if (status === "COMPLETED" && feedbackPending) {
+        list.push({
+          id: `feedback_${r.requestId || r.id}`,
+          title: "Rate your service",
+          body: `Please rate ${r.housekeeperName || "your staff"} for ${r.serviceType || "this service"}.`,
+          createdAt: r.updatedAt || r.completedAt || r.createdAt || 0,
+          type: "feedback",
+          requestId: r.id || r.requestId
         });
       }
 
@@ -134,29 +149,58 @@ function CustomerNotificationsInner({ filter, setFilter }) {
               <option value="schedule">Upcoming schedules</option>
               <option value="payment">Payment reminders</option>
               <option value="request">Request updates</option>
+              <option value="feedback">Feedback</option>
               <option value="general">General</option>
             </select>
           </label>
         </div>
-
         {loading && notifications.length === 0 ? (
           <div className="muted small">Loading notifications...</div>
         ) : visible.length === 0 ? (
           <div className="muted small">No alerts yet.</div>
         ) : (
           <div className="notification-feed">
-            {visible.slice(0, 40).map((n) => (
-              <div key={n.id} className={`notif-item ${String(n.type || "general")}`}>
-                <div className="notif-top">
-                  <strong>{n.title || "Update"}</strong>
-                  <span className="muted tiny">{formatWhen(n.createdAt) || "—"}</span>
+            {visible.slice(0, 40).map((n) => {
+              const canRate =
+                String(n.type || "") === "feedback" &&
+                String(n.requestId || n.requestID || n.request_id || "").trim();
+              return (
+                <div key={n.id} className={`notif-item ${String(n.type || "general")}`}>
+                  <div className="notif-top">
+                    <strong>{n.title || "Update"}</strong>
+                    <span className="muted tiny">{formatWhen(n.createdAt) || "—"}</span>
+                  </div>
+                  <p className="muted small">{n.body || ""}</p>
+                  {canRate && (
+                    <div className="notif-actions">
+                      <button
+                        className="btn pill small primary"
+                        type="button"
+                        onClick={() =>
+                          navigate("/customer/requests", {
+                            state: { openFeedbackFor: n.requestId || n.requestID || n.request_id }
+                          })
+                        }
+                      >
+                        Rate now
+                      </button>
+                    </div>
+        )}
                 </div>
-                <p className="muted small">{n.body || ""}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
     </>
   );
 }
+
+
+
+
+
+
+
+
+

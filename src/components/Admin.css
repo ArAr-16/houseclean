@@ -2067,6 +2067,13 @@ html.dark-mode .search-box.modern input {
   font-weight: 600;
 }
 
+.calendar-cell.empty {
+  background: transparent;
+  color: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+
 .calendar-cell.today {
   background: #1d3c70;
   color: #fff;
@@ -2199,6 +2206,11 @@ html.dark-mode .calendar-head {
 html.dark-mode .calendar-cell {
   background: #0f172a;
   color: #e5e7f0;
+}
+
+html.dark-mode .calendar-cell.empty {
+  background: transparent;
+  color: transparent;
 }
 
 html.dark-mode .calendar-cell.today {
@@ -2664,6 +2676,13 @@ html.dark-mode .skill-other input[type="text"] {
   color: #c0392b;
   font-size: 12px;
   font-weight: 600;
+}
+.form-error--banner {
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(192, 57, 43, 0.25);
+  background: #fff2f1;
+  border-radius: 8px;
 }
 .req {
   color: #e11d48;

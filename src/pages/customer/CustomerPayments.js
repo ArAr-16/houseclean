@@ -1,6 +1,15 @@
-import React, { useMemo, useState } from "react";
+﻿﻿﻿﻿﻿import React, { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { useCustomerServiceRequests } from "./customerData";
+import {
+  push,
+  ref as rtdbRef,
+  serverTimestamp as rtdbServerTimestamp,
+  set as rtdbSet,
+  update as rtdbUpdate
+} from "firebase/database";
+import { rtdb } from "../../firebase";
 
 function moneyLabel(value) {
   const n = typeof value === "number" ? value : Number(value);
@@ -39,7 +48,7 @@ function buildInvoice(request, ctx) {
     location ? `Location: ${location}` : null,
     "",
     `Service: ${service}`,
-    `Schedule: ${when || "—"}`,
+    `Schedule: ${when || "â€”"}`,
     `Assigned staff: ${staff}`,
     "",
     `Total: ${total}`,
@@ -55,7 +64,14 @@ function buildInvoice(request, ctx) {
 function buildReceipt(request, ctx) {
   const id = String(request?.requestId || request?.id || "").trim() || "RCT";
   const total = moneyLabel(request?.totalPrice);
-  const paidVia = String(request?.paidVia || "N/A");
+  const paidViaRaw = String(request?.paidVia || "N/A");
+  const paidViaKey = paidViaRaw.trim().toUpperCase();
+  const paidVia =
+    paidViaKey === "STATIC_QR"
+      ? "Static QR"
+      : paidViaKey === "CASH_ON_HAND"
+        ? "Cash on Hand"
+        : paidViaRaw;
   const paidAt = request?.paidAt ? new Date(Number(request.paidAt)).toLocaleString() : "N/A";
   const customer = String(ctx?.displayName || ctx?.authUser?.email || "Customer");
 
@@ -73,17 +89,40 @@ function buildReceipt(request, ctx) {
   ].join("\n");
 }
 
+function formatDateTimeLabel(value, fallbackDate, fallbackTime) {
+  const raw = String(value || "").trim();
+  const combined = String(`${fallbackDate || ""} ${fallbackTime || ""}`).trim();
+  const candidate = raw || combined;
+  if (!candidate) return "--";
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) return candidate;
+  const date = parsed.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "2-digit",
+    year: "numeric"
+  });
+  const time = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${date} • ${time}`;
+}
+
+function formatPaymentMethodLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  if (key === "STATIC_QR") return "Static QR";
+  if (key === "CASH_ON_HAND") return "Cash on Hand";
+  return value ? String(value) : "--";
+}
+
 function CustomerPayments() {
   const paymentMethods = useMemo(
     () => [
-      { key: "gcash", label: "GCash", icon: "fas fa-mobile-alt", hint: "Fast local payments" },
-      { key: "paypal", label: "PayPal", icon: "fab fa-paypal", hint: "Pay with PayPal balance/cards" },
-      { key: "card", label: "Card", icon: "fas fa-credit-card", hint: "Visa / Mastercard" }
+      { key: "STATIC_QR", label: "Static QR", icon: "fas fa-qrcode", hint: "Scan & pay to the official QR" },
+      { key: "CASH_ON_HAND", label: "Cash on Hand", icon: "fas fa-hand-holding-usd", hint: "Pay the staff in person" }
     ],
     []
   );
 
-  const [selectedMethod, setSelectedMethod] = useState("gcash");
+  const [selectedMethod, setSelectedMethod] = useState("STATIC_QR");
 
   return (
     <CustomerChrome>
@@ -100,9 +139,109 @@ export default CustomerPayments;
 
 function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMethod }) {
   const ctx = useCustomerChrome();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { requests, loading } = useCustomerServiceRequests(ctx.authUser?.uid);
-  const payable = (requests || []).filter((r) => String(r.status || "").toUpperCase() !== "COMPLETED");
+  const payable = (requests || []).filter((r) => {
+    const status = String(r.status || "").toUpperCase();
+    if (["PENDING_PAYMENT", "RESERVED", "CONFIRMED", "ACCEPTED"].includes(status)) return true;
+    if (status === "PENDING" && String(r.paymentMethod || "").trim()) return true;
+    return false;
+  });
   const completed = (requests || []).filter((r) => String(r.status || "").toUpperCase() === "COMPLETED");
+  const [txnByRequest, setTxnByRequest] = useState({});
+  const [savingId, setSavingId] = useState("");
+  const [activePayment, setActivePayment] = useState(null);
+  const activeStatus = activePayment ? String(activePayment.status || "").toUpperCase() : "";
+  const activeIsPendingPayment = activeStatus === "PENDING_PAYMENT";
+  const activePaymentStatus = activePayment ? String(activePayment.paymentStatus || "").toUpperCase() : "";
+  const activeMethod = activePayment ? String(activePayment.paymentMethod || activePayment.paidVia || "").toUpperCase() : "";
+  const canConfirmCash =
+    activeMethod === "CASH_ON_HAND" &&
+    !["RESERVED", "PAID"].includes(activePaymentStatus) &&
+    activeStatus !== "COMPLETED";
+
+  useEffect(() => {
+    const targetId = String(location?.state?.openPaymentFor || "").trim();
+    if (!targetId) return;
+    const match = (requests || []).find(
+      (r) => String(r.id || r.requestId || "").trim() === targetId
+    );
+    if (match) {
+      setActivePayment(match);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location?.state?.openPaymentFor, requests, navigate, location?.pathname]);
+
+  const sendNotification = async ({ toUserId, title, body, requestId }) => {
+    if (!toUserId) return;
+    const listRef = rtdbRef(rtdb, `UserNotifications/${String(toUserId)}`);
+    const notifRef = push(listRef);
+    await rtdbSet(notifRef, {
+      title: String(title || "Update"),
+      body: String(body || ""),
+      requestId: String(requestId || ""),
+      createdAt: rtdbServerTimestamp(),
+      read: false,
+      source: "web"
+    });
+  };
+
+  const handleSubmitQr = async (req) => {
+    const id = String(req?.id || req?.requestId || "").trim();
+    if (!id) return;
+    const txn = String(txnByRequest[id] || "").trim();
+    if (!txn) return;
+    try {
+      setSavingId(id);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+        status: "CONFIRMED",
+        paymentStatus: "PAID",
+        paidVia: "STATIC_QR",
+        paidAt: rtdbServerTimestamp(),
+        paymentTransactionId: txn,
+        updatedAt: rtdbServerTimestamp()
+      });
+      const staffId = String(req?.housekeeperId || "").trim();
+      if (staffId) {
+        await sendNotification({
+          toUserId: staffId,
+          requestId: id,
+          title: "Booking confirmed (Paid)",
+          body: `${req?.serviceType || "Service"} has been paid via QR. Please review the job.`
+        });
+      }
+    } finally {
+      setSavingId("");
+    }
+  };
+
+  const handleConfirmCash = async (req) => {
+    const id = String(req?.id || req?.requestId || "").trim();
+    if (!id) return;
+    try {
+      setSavingId(id);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+        status: "RESERVED",
+        paymentStatus: "RESERVED",
+        paidVia: "CASH_ON_HAND",
+        cashOnHandConfirmed: true,
+        cashConfirmedAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      const staffId = String(req?.housekeeperId || "").trim();
+      if (staffId) {
+        await sendNotification({
+          toUserId: staffId,
+          requestId: id,
+          title: "Cash on Hand reserved",
+          body: `${req?.serviceType || "Service"} is reserved for cash payment on arrival.`
+        });
+      }
+    } finally {
+      setSavingId("");
+    }
+  };
 
   return (
     <>
@@ -112,7 +251,6 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
             <p className="eyebrow">Payments</p>
             <h3>Secure payment options</h3>
           </div>
-          <span className="pill soft amber">Demo</span>
         </div>
 
         <div className="payment-methods">
@@ -132,12 +270,42 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
           ))}
         </div>
 
-        <div className="settings-actions">
-          <button className="btn pill primary" type="button" disabled>
-            Pay now (coming soon)
-          </button>
-          <span className="muted small">Selected: {paymentMethods.find((m) => m.key === selectedMethod)?.label}</span>
-        </div>
+        {selectedMethod === "STATIC_QR" && (
+          <div className="pay-instructions">
+            <div>
+              <p className="eyebrow">How to pay</p>
+              <h4>Scan the official HOUSECLEAN QR</h4>
+              <p className="muted small">
+                Use your e-wallet/banking app to scan the Static QR from staff or at the cashier/office. Enter the exact invoice total and
+                include your request ID in the notes.
+              </p>
+            </div>
+            <div className="pay-steps">
+              <span>1. Open your GCash/Maya app.</span>
+              <span>2. Scan the QR code.</span>
+              <span>3. Enter the invoice amount.</span>
+              <span>4. Add the request ID in the notes.</span>
+            </div>
+          </div>
+        )}
+        {selectedMethod === "CASH_ON_HAND" && (
+          <div className="pay-instructions">
+            <div>
+              <p className="eyebrow">Cash on Hand</p>
+              <h4>Pay when the staff arrives</h4>
+              <p className="muted small">
+                Confirm that you will pay the staff in person. Your booking will be reserved until the staff marks the
+                payment as received on-site.
+              </p>
+            </div>
+            <div className="pay-steps">
+              <span>1. Choose Cash on Hand at checkout.</span>
+              <span>2. Confirm the cash option below.</span>
+              <span>3. Pay the staff on arrival.</span>
+              <span>4. Staff confirms payment to start work.</span>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel card">
@@ -154,56 +322,83 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
           <div className="muted small">No requests found.</div>
         ) : (
           <>
-            <div className="muted small">Invoices can be generated anytime. Receipts appear after payment integration.</div>
+            <div className="muted small">Pay pending requests below to confirm your booking.</div>
 
             <div className="billing-list">
-              {payable.slice(0, 12).map((r) => (
-                <div key={r.requestId || r.id} className="billing-row">
-                  <div className="billing-meta">
-                    <strong>{r.serviceType || "Service"}</strong>
-                    <span className="muted small">{String(r.startDate || `${r.date || ""} ${r.time || ""}`).trim() || "—"}</span>
-                  </div>
-                  <div className="billing-actions">
-                    <span className="pill stat">{moneyLabel(r.totalPrice)}</span>
-                    <button
-                      className="btn pill ghost"
-                      type="button"
-                      onClick={() =>
-                        downloadFile(`invoice_${String(r.requestId || r.id).slice(-8)}.txt`, buildInvoice(r, ctx))
-                      }
-                    >
-                      Download invoice
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {payable.slice(0, 12).map((r) => {
+                const status = String(r.status || "").toUpperCase();
 
+                const isPendingPayment = status === "PENDING_PAYMENT";
+                const isReserved = status === "RESERVED";
+                const isConfirmed = status === "CONFIRMED" || status === "ACCEPTED";
+                const statusLabel = isPendingPayment
+                  ? "Pending payment"
+                  : isReserved
+                    ? "Reserved"
+                    : isConfirmed
+                      ? "Paid"
+                      : "—";
+                const statusDetail = isPendingPayment
+                  ? "Complete payment to confirm your booking."
+                  : isReserved
+                    ? "Pay on arrival. Staff will confirm payment."
+                    : isConfirmed
+                      ? "Payment confirmed. Staff will proceed with the service."
+                      : "";
+
+                return (
+                  <div
+                    key={r.requestId || r.id}
+                    className="billing-row clickable"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActivePayment(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setActivePayment(r);
+                      }
+                    }}
+                  >
+                    <div className="billing-meta">
+                      <strong>{r.serviceType || "Service"}</strong>
+                      <span className="muted small">
+                        {formatDateTimeLabel(r.startDate, r.date, r.time)}
+                      </span>
+                    </div>
+                    <div className="billing-actions">
+                    </div>
+                    <div className="billing-status">
+                      <span className={`pill soft ${isPendingPayment ? "amber" : isReserved ? "blue" : isConfirmed ? "green" : ""}`}>
+                        {statusLabel}
+                      </span>
+                      {statusDetail && <span className="muted small">{statusDetail}</span>}
+                    </div>
+                  </div>
+                );
+              })}
               {completed.slice(0, 8).map((r) => (
-                <div key={r.requestId || r.id} className="billing-row done">
+                <div
+                  key={r.requestId || r.id}
+                  className="billing-row done clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActivePayment(r)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setActivePayment(r);
+                    }
+                  }}
+                >
                   <div className="billing-meta">
                     <strong>{r.serviceType || "Service"} (Completed)</strong>
-                    <span className="muted small">{String(r.startDate || `${r.date || ""} ${r.time || ""}`).trim() || "—"}</span>
+                    <span className="muted small">
+                      {formatDateTimeLabel(r.startDate, r.date, r.time)}
+                    </span>
                   </div>
                   <div className="billing-actions">
-                    <span className="pill soft green">{moneyLabel(r.totalPrice)}</span>
-                    <button
-                      className="btn pill ghost"
-                      type="button"
-                      onClick={() =>
-                        downloadFile(`invoice_${String(r.requestId || r.id).slice(-8)}.txt`, buildInvoice(r, ctx))
-                      }
-                    >
-                      Invoice
-                    </button>
-                    <button
-                      className="btn pill ghost"
-                      type="button"
-                      onClick={() =>
-                        downloadFile(`receipt_${String(r.requestId || r.id).slice(-8)}.txt`, buildReceipt(r, ctx))
-                      }
-                    >
-                      Receipt
-                    </button>
+
                   </div>
                 </div>
               ))}
@@ -211,6 +406,123 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
           </>
         )}
       </section>
+
+      {activePayment && (
+        <div className="share-modal payment-modal">
+          <div className="share-modal__backdrop" onClick={() => setActivePayment(null)} />
+          <div className="share-modal__panel payment-modal__panel" role="dialog" aria-modal="true" aria-label="Request details">
+            <div className="share-modal__header">
+              <h4>Request details</h4>
+              <button
+                className="icon-btn share-close"
+                type="button"
+                onClick={() => setActivePayment(null)}
+                aria-label="Close details"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="share-modal__body">
+              <div className="payment-modal__meta">
+                <strong>{activePayment.serviceType || "Service"}</strong>
+                <span className="muted small">
+                  {formatDateTimeLabel(activePayment.startDate, activePayment.date, activePayment.time)}
+                </span>
+                <span className="pill stat">{moneyLabel(activePayment.totalPrice)}</span>
+              </div>
+              <div className="payment-modal__details">
+                <div>
+                  <span className="muted tiny">Request ID</span>
+                  <strong>{activePayment.requestId || activePayment.id || "--"}</strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Status</span>
+                  <strong>{String(activePayment.status || "PENDING").toUpperCase()}</strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Payment</span>
+                  <strong>{formatPaymentMethodLabel(activePayment.paymentMethod || activePayment.paidVia)}</strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Assigned staff</span>
+                  <strong>{activePayment.housekeeperName || "Unassigned"}</strong>
+                </div>
+              </div>
+              <div className="payment-modal__actions">
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() =>
+                    downloadFile(
+                      `invoice_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
+                      buildInvoice(activePayment, ctx)
+                    )
+                  }
+                >
+                  Download invoice
+                </button>
+                {String(activePayment.status || "").toUpperCase() === "COMPLETED" && (
+                  <button
+                    className="btn pill ghost"
+                    type="button"
+                    onClick={() =>
+                      downloadFile(
+                        `receipt_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
+                        buildReceipt(activePayment, ctx)
+                      )
+                    }
+                  >
+                    Receipt
+                  </button>
+                )}
+              </div>
+              {activeIsPendingPayment && String(activePayment.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
+                <div className="payment-inline">
+                  <p className="muted small">Enter the transaction ID from your QR payment.</p>
+                  <input
+                    type="text"
+                    placeholder="Transaction ID"
+                    value={txnByRequest[String(activePayment.id || activePayment.requestId || "")] || ""}
+                    onChange={(e) =>
+                      setTxnByRequest((prev) => ({
+                        ...prev,
+                        [String(activePayment.id || activePayment.requestId || "")]: e.target.value
+                      }))
+                    }
+                  />
+                  <button
+                    className="btn pill primary"
+                    type="button"
+                    disabled={!String(txnByRequest[String(activePayment.id || activePayment.requestId || "")] || "").trim() || savingId === String(activePayment.id || activePayment.requestId || "")}
+                    onClick={() => {
+                      handleSubmitQr(activePayment);
+                      setActivePayment(null);
+                    }}
+                  >
+                    {savingId === String(activePayment.id || activePayment.requestId || "") ? "Saving..." : "Submit QR Payment"}
+                  </button>
+                </div>
+              )}
+              {canConfirmCash && (
+                <div className="payment-inline">
+                  <p className="muted small">Confirm that you will pay in cash when the staff arrives.</p>
+                  <button
+                    className="btn pill primary"
+                    type="button"
+                    disabled={savingId === String(activePayment.id || activePayment.requestId || "")}
+                    onClick={() => {
+                      handleConfirmCash(activePayment);
+                      setActivePayment(null);
+                    }}
+                  >
+                    {savingId === String(activePayment.id || activePayment.requestId || "") ? "Saving..." : "Confirm Cash on Hand"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

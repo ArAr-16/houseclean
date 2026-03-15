@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./Customer.css";
 import Logo from "../../components/Logo.png";
 import { auth, rtdb } from "../../firebase";
@@ -8,12 +8,18 @@ import {
   equalTo,
   onValue,
   orderByChild,
+  push,
   query as rtdbQuery,
-  ref as rtdbRef
+  ref as rtdbRef,
+  serverTimestamp as rtdbServerTimestamp,
+  set as rtdbSet,
+  update as rtdbUpdate
 } from "firebase/database";
 import BroomLoader from "../../components/BroomLoader";
-import CustomerSidebar from "./CustomerSidebar";
-import CustomerHeader from "./CustomerHeader";
+import CustomerSidebar from "./components/CustomerSidebar";
+import CustomerHeader from "./components/CustomerHeader";
+import CustomerMain from "./components/CustomerMain";
+import BookingWizardModal from "./BookingWizardModal";
 import { getCustomerSidebarItems } from "./customerNav";
 
 function Customer() {
@@ -27,6 +33,17 @@ function Customer() {
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notifSeenAt, setNotifSeenAt] = useState(0);
+  const [staffAvatarSeeds, setStaffAvatarSeeds] = useState({});
+  const [dashboardBookingOpen, setDashboardBookingOpen] = useState(false);
+  const [showSubmittedModal, setShowSubmittedModal] = useState(false);
+  const [submittedMessage, setSubmittedMessage] = useState("");
+  const [submittedRequestId, setSubmittedRequestId] = useState("");
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentTarget, setPaymentTarget] = useState(null);
+  const [paymentTxn, setPaymentTxn] = useState("");
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [staffDirectory, setStaffDirectory] = useState([]);
+  const [staffDirectoryLoading, setStaffDirectoryLoading] = useState(true);
   const navigate = useNavigate();
   const basePath = String(location?.pathname || "").startsWith("/householder") ? "/householder" : "/customer";
   const latestNotifAt = Number(notifications?.[0]?.createdAt || 0) || 0;
@@ -82,8 +99,12 @@ function Customer() {
           const data = snap.val();
           if (data) {
             setProfile({ id: user.uid, email: user.email, ...data });
+            if (!data.avatarSeed) {
+              rtdbUpdate(rtdbRef(rtdb, `Users/${user.uid}`), { avatarSeed: "housekeeper" }).catch(() => {});
+            }
           } else {
             setProfile({ id: user.uid, email: user.email });
+            rtdbUpdate(rtdbRef(rtdb, `Users/${user.uid}`), { avatarSeed: "housekeeper" }).catch(() => {});
           }
           setProfileLoading(false);
         },
@@ -151,28 +172,26 @@ function Customer() {
   const roleLabel = profileLoading ? "Connecting..." : normalizeRoleLabel(profile?.role);
   const showGuest = !profile && !profileLoading;
 
-  const createAvatarDataUri = (seed) => {
-    const text = String(seed || "HU").trim() || "HU";
-    const safe = text.slice(0, 2).toUpperCase();
-    let hash = 0;
-    for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-    const hue = hash % 360;
-    const bg = `hsl(${hue} 72% 42%)`;
-    const fg = "#ffffff";
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">` +
-      `<rect width="96" height="96" rx="18" fill="${bg}"/>` +
-      `<text x="48" y="54" text-anchor="middle" font-family="system-ui,Segoe UI,Arial" font-size="34" font-weight="800" fill="${fg}">${safe}</text>` +
-      `</svg>`;
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const createAvatarDataUri = (presetId) => {
+    const base = "data:image/svg+xml;charset=utf-8,";
+    const preset = String(presetId || "mop");
+    const map = {
+      mop: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><rect x=\"45\" y=\"18\" width=\"6\" height=\"42\" rx=\"3\" fill=\"#0EA5E9\"/><rect x=\"34\" y=\"54\" width=\"28\" height=\"8\" rx=\"4\" fill=\"#38BDF8\"/><path d=\"M28 62c6 10 34 10 40 0\" fill=\"none\" stroke=\"#0EA5E9\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+      broom: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEF3C7\" stroke=\"#F59E0B\" stroke-width=\"2\"/><rect x=\"46\" y=\"16\" width=\"4\" height=\"46\" rx=\"2\" fill=\"#B45309\"/><path d=\"M32 60h32l-6 16H38l-6-16z\" fill=\"#F59E0B\"/><path d=\"M38 60l2 8M44 60l2 8M50 60l2 8M56 60l2 8\" stroke=\"#B45309\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+      vacuum: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#EDE9FE\" stroke=\"#8B5CF6\" stroke-width=\"2\"/><rect x=\"30\" y=\"48\" width=\"28\" height=\"18\" rx=\"9\" fill=\"#8B5CF6\"/><circle cx=\"62\" cy=\"58\" r=\"8\" fill=\"#C4B5FD\"/><path d=\"M58 36h12\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M70 36v18\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>",
+      spray: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DCFCE7\" stroke=\"#22C55E\" stroke-width=\"2\"/><rect x=\"40\" y=\"34\" width=\"16\" height=\"8\" rx=\"3\" fill=\"#22C55E\"/><rect x=\"36\" y=\"42\" width=\"24\" height=\"34\" rx=\"8\" fill=\"#4ADE80\"/><path d=\"M56 30h10\" stroke=\"#16A34A\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"72\" cy=\"34\" r=\"3\" fill=\"#22C55E\"/></svg>",
+      bucket: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DBEAFE\" stroke=\"#3B82F6\" stroke-width=\"2\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#60A5FA\"/><path d=\"M36 32c0-6 24-6 24 0\" fill=\"none\" stroke=\"#3B82F6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M38 54c6 6 14 6 20 0\" stroke=\"#3B82F6\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+      apron: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FFE4E6\" stroke=\"#F43F5E\" stroke-width=\"2\"/><path d=\"M34 28c8 10 20 10 28 0\" fill=\"none\" stroke=\"#F43F5E\" stroke-width=\"3\" stroke-linecap=\"round\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#FB7185\"/><rect x=\"40\" y=\"48\" width=\"16\" height=\"10\" rx=\"4\" fill=\"#FFE4E6\"/></svg>",
+      gloves: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEE2E2\" stroke=\"#EF4444\" stroke-width=\"2\"/><path d=\"M30 54c0-10 6-14 10-14s6 4 6 8v20H36c-4 0-6-4-6-14z\" fill=\"#F87171\"/><path d=\"M60 50c0-8 6-12 10-12s6 4 6 8v18H66c-4 0-6-4-6-14z\" fill=\"#FB7185\"/></svg>",
+      housekeeper: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0E7FF\" stroke=\"#6366F1\" stroke-width=\"2\"/><circle cx=\"48\" cy=\"38\" r=\"12\" fill=\"#A5B4FC\"/><path d=\"M28 74c4-16 36-16 40 0\" fill=\"#818CF8\"/><path d=\"M38 36c6 4 14 4 20 0\" stroke=\"#6366F1\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+      sparkle_home: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#ECFCCB\" stroke=\"#65A30D\" stroke-width=\"2\"/><path d=\"M26 50l22-18 22 18v22H26V50z\" fill=\"#84CC16\"/><path d=\"M44 72V56h8v16\" fill=\"#D9F99D\"/><path d=\"M70 30l4 4m0-4l-4 4\" stroke=\"#65A30D\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+      bubbles: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><circle cx=\"36\" cy=\"52\" r=\"12\" fill=\"#BAE6FD\"/><circle cx=\"58\" cy=\"42\" r=\"10\" fill=\"#7DD3FC\"/><circle cx=\"58\" cy=\"64\" r=\"8\" fill=\"#38BDF8\"/></svg>"
+    };
+    const svg = map[preset] || map.mop;
+    return `${base}${encodeURIComponent(svg)}`;
   };
 
-  const avatarUrl =
-    profile?.photoURL ||
-    profile?.avatar ||
-    profile?.image ||
-    authUser?.photoURL ||
-    createAvatarDataUri(displayName);
+  const avatarUrl = createAvatarDataUri(profile?.avatarSeed || "mop");
 
   const contactLine = (profile?.phone || profile?.contact || "").trim();
   const addressLine = [
@@ -257,6 +276,22 @@ function Customer() {
     return Number.isFinite(num) ? num : 0;
   };
 
+  const getRequestUpdatedAt = (req) => {
+    const candidates = [
+      req?.updatedAt,
+      req?.completedAt,
+      req?.acceptedAt,
+      req?.confirmedAt,
+      req?.createdAt,
+      req?.timestamp
+    ];
+    return candidates.reduce((acc, val) => {
+      const num = typeof val === "number" ? val : Number(val);
+      if (!Number.isFinite(num)) return acc;
+      return Math.max(acc, num);
+    }, 0);
+  };
+
   const formatWhen = (value) => {
     if (value == null) return "";
     if (typeof value?.toDate === "function") return value.toDate().toLocaleString();
@@ -264,6 +299,426 @@ function Customer() {
     if (!Number.isFinite(ms) || ms <= 0) return "";
     return new Date(ms).toLocaleString();
   };
+
+  const preferredStaffId = String(
+    profile?.preferredStaffId || profile?.preferredHousekeeperId || ""
+  ).trim();
+  const preferredStaffName = String(
+    profile?.preferredStaffName || profile?.preferredHousekeeperName || ""
+  ).trim();
+  const preferredStaffRole = String(
+    profile?.preferredStaffRole || profile?.preferredHousekeeperRole || ""
+  ).trim();
+
+  const preferredStaffList = (() => {
+    const map = new Map();
+    (myRequests || []).forEach((req) => {
+      const id = String(req?.housekeeperId || "").trim();
+      if (!id) return;
+      const name = String(req?.housekeeperName || "Staff").trim();
+      const role = String(req?.housekeeperRole || "staff").trim();
+      const avatarSeed = String(req?.housekeeperAvatarSeed || req?.avatarSeed || "").trim();
+      const updatedAt = getRequestUpdatedAt(req);
+      const initials = (() => {
+        const words = String(name || "")
+          .replace(/[^A-Za-z0-9 ]/g, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+        return (words.join("") || "HK").slice(0, 2).toUpperCase();
+      })();
+      const current = map.get(id) || {
+        id,
+        name,
+        role,
+        avatarSeed,
+        initials,
+        servicesCount: 0,
+        lastServiceAt: 0
+      };
+      if (!current.avatarSeed && avatarSeed) current.avatarSeed = avatarSeed;
+      current.servicesCount += 1;
+      current.lastServiceAt = Math.max(current.lastServiceAt, updatedAt);
+      map.set(id, current);
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const aPreferred = preferredStaffId && a.id === preferredStaffId ? 1 : 0;
+      const bPreferred = preferredStaffId && b.id === preferredStaffId ? 1 : 0;
+      if (aPreferred !== bPreferred) return bPreferred - aPreferred;
+      return (b.lastServiceAt || 0) - (a.lastServiceAt || 0);
+    });
+  })();
+
+  useEffect(() => {
+    const usersRef = rtdbRef(rtdb, "Users");
+    setStaffDirectoryLoading(true);
+    const stop = onValue(
+      usersRef,
+      (snap) => {
+        const val = snap.val() || {};
+        const list = Object.entries(val).map(([id, data]) => ({ id, ...(data || {}) }));
+        const staff = list.filter((user) => {
+          const role = String(user?.role || "").trim().toLowerCase();
+          if (!(role === "staff" || role === "housekeeper")) return false;
+          const status = String(user?.status || "").trim().toLowerCase();
+          if (status === "disabled") return false;
+          const areaFields = [
+            user?.barangay,
+            user?.municipality,
+            user?.city,
+            user?.area,
+            user?.location,
+            user?.address,
+            user?.province
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const serviceAreas = Array.isArray(user?.serviceAreas)
+            ? user.serviceAreas.join(" ")
+            : "";
+          const haystack = `${areaFields} ${serviceAreas}`.toLowerCase();
+          return haystack.includes("dagupan");
+        });
+        const mapped = staff.map((user) => {
+          const name =
+            user?.fullName ||
+            user?.name ||
+            `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
+            "Staff";
+          const initials = (() => {
+            const words = String(name || "")
+              .replace(/[^A-Za-z0-9 ]/g, " ")
+              .trim()
+              .split(/\s+/)
+              .filter(Boolean);
+            if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+            return (words.join("") || "HK").slice(0, 2).toUpperCase();
+          })();
+          const seed = String(user?.avatarSeed || "housekeeper");
+          const areaLabel = [
+            user?.barangay,
+            user?.municipality,
+            user?.city,
+            user?.province
+          ]
+            .filter(Boolean)
+            .join(", ")
+            .trim();
+          const availabilityDays = Array.isArray(user?.availabilityDays)
+            ? user.availabilityDays
+            : [];
+          const availabilityStart = String(user?.availabilityStart || "").trim();
+          const availabilityEnd = String(user?.availabilityEnd || "").trim();
+          const availabilityLabel = String(user?.availability || "").trim()
+            ? String(user?.availability).trim()
+            : availabilityDays.length && availabilityStart && availabilityEnd
+              ? `${availabilityDays.join(", ")} · ${availabilityStart}-${availabilityEnd}`
+              : "";
+          return {
+            id: String(user?.id || ""),
+            name,
+            role: normalizeRoleLabel(user?.role),
+            avatarSeed: seed,
+            avatarUrl: createAvatarDataUri(seed),
+            initials,
+            area: areaLabel || "Dagupan City",
+            rating: user?.ratingAverage || user?.rating || null,
+            contact: String(user?.contact || user?.phone || "").trim(),
+            email: String(user?.email || "").trim(),
+            availability: availabilityLabel,
+            availabilityDays,
+            availabilityStart,
+            availabilityEnd,
+            experienceYears: Number(user?.experienceYears || user?.experience || 0) || 0,
+            experienceNotes: String(user?.experienceNotes || user?.experience || "").trim(),
+            certification: String(user?.certification || "").trim(),
+            barangayClearance: String(user?.barangayClearance || "").trim(),
+            phoneModel: String(user?.phoneModel || "").trim()
+          };
+        });
+        mapped.sort((a, b) => {
+          const aPinned = preferredStaffId && a.id === preferredStaffId ? 1 : 0;
+          const bPinned = preferredStaffId && b.id === preferredStaffId ? 1 : 0;
+          if (aPinned !== bPinned) return bPinned - aPinned;
+          const aRating = Number(a.rating || 0) || 0;
+          const bRating = Number(b.rating || 0) || 0;
+          return bRating - aRating;
+        });
+        setStaffDirectory(mapped);
+        setStaffDirectoryLoading(false);
+      },
+      () => setStaffDirectoryLoading(false)
+    );
+    return () => stop();
+  }, [preferredStaffId]);
+
+  const preferredStaffIds = preferredStaffList.map((staff) => staff.id).filter(Boolean);
+
+  useEffect(() => {
+    if (!preferredStaffIds.length) {
+      setStaffAvatarSeeds({});
+      return;
+    }
+    const usersRef = rtdbRef(rtdb, "Users");
+    const stop = onValue(
+      usersRef,
+      (snap) => {
+        const val = snap.val() || {};
+        const next = {};
+        preferredStaffIds.forEach((id) => {
+          if (val[id]?.avatarSeed) next[id] = String(val[id].avatarSeed);
+        });
+        setStaffAvatarSeeds(next);
+      },
+      () => setStaffAvatarSeeds({})
+    );
+    return () => stop();
+  }, [preferredStaffIds.join("|")]);
+
+  const preferredStaffWithAvatars = preferredStaffList.map((staff) => {
+    const seed = staff.avatarSeed || staffAvatarSeeds[staff.id] || "housekeeper";
+    return {
+      ...staff,
+      avatarSeed: seed,
+      avatarUrl: createAvatarDataUri(seed)
+    };
+  });
+
+  const handlePreferredStaffSelect = async (staff) => {
+    if (!authUser?.uid) return;
+    const targetId = String(staff?.id || "").trim();
+    const isSame = targetId && preferredStaffId && targetId === preferredStaffId;
+    const payload = isSame
+      ? {
+          preferredStaffId: "",
+          preferredStaffName: "",
+          preferredStaffRole: "",
+          preferredStaffUpdatedAt: rtdbServerTimestamp()
+        }
+      : {
+          preferredStaffId: targetId,
+          preferredStaffName: String(staff?.name || "").trim(),
+          preferredStaffRole: String(staff?.role || "").trim(),
+          preferredStaffUpdatedAt: rtdbServerTimestamp()
+        };
+    await rtdbUpdate(rtdbRef(rtdb, `Users/${authUser.uid}`), payload);
+  };
+
+  const latestRequest = (() => {
+    let latest = null;
+    let latestAt = 0;
+    (myRequests || []).forEach((req) => {
+      const updatedAt = getRequestUpdatedAt(req);
+      if (updatedAt >= latestAt) {
+        latestAt = updatedAt;
+        latest = req;
+      }
+    });
+    return latest
+      ? {
+          ...latest,
+          lastUpdatedAt: latestAt
+        }
+      : null;
+  })();
+
+  const activeStatus = paymentTarget ? String(paymentTarget.status || "").toUpperCase() : "";
+  const activePaymentStatus = paymentTarget
+    ? String(paymentTarget.paymentStatus || "").toUpperCase()
+    : "";
+  const activePaymentMethod = paymentTarget
+    ? String(paymentTarget.paymentMethod || paymentTarget.paidVia || "").toUpperCase()
+    : "";
+  const isPendingPayment = activeStatus === "PENDING_PAYMENT";
+  const canConfirmCash =
+    activePaymentMethod === "CASH_ON_HAND" &&
+    !["RESERVED", "PAID"].includes(activePaymentStatus) &&
+    activeStatus !== "COMPLETED";
+  const showQrPayment = isPendingPayment && activePaymentMethod === "STATIC_QR";
+  const canShowReceipt =
+    activePaymentStatus === "PAID" || ["CONFIRMED", "ACCEPTED", "COMPLETED"].includes(activeStatus);
+
+  const moneyLabel = (value) => {
+    const n = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(n) || n <= 0) return "PHP --";
+    return `PHP ${Math.round(n).toLocaleString()}`;
+  };
+
+  const formatDateTimeLabel = (value, fallbackDate, fallbackTime) => {
+    const raw = String(value || "").trim();
+    const combined = String(`${fallbackDate || ""} ${fallbackTime || ""}`).trim();
+    const candidate = raw || combined;
+    if (!candidate) return "--";
+    const parsed = new Date(candidate);
+    if (Number.isNaN(parsed.getTime())) return candidate;
+    const date = parsed.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "2-digit",
+      year: "numeric"
+    });
+    const time = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${date} •  ${time}`;
+  };
+
+  const formatPaymentMethodLabel = (value) => {
+    const key = String(value || "").trim().toUpperCase();
+    if (key === "STATIC_QR") return "Static QR";
+    if (key === "CASH_ON_HAND") return "Cash on Hand";
+    return value ? String(value) : "--";
+  };
+
+  const downloadFile = (filename, content, mime = "text/plain;charset=utf-8") => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 800);
+  };
+
+  const buildInvoice = (request) => {
+    const id = String(request?.requestId || request?.id || "").trim() || "INV";
+    const service = String(request?.serviceType || "Service");
+    const when = formatDateTimeLabel(request?.startDate, request?.date, request?.time);
+    const staff = String(request?.housekeeperName || "Unassigned");
+    const total = moneyLabel(request?.totalPrice);
+    const customer = String(displayName || authUser?.email || "Customer");
+    const email = String(authUser?.email || profile?.email || "");
+    const location = String(profile?.location || request?.location || "");
+
+    return [
+      "HOUSECLEAN INVOICE",
+      "",
+      `Invoice: ${id}`,
+      `Customer: ${customer}`,
+      email ? `Email: ${email}` : null,
+      location ? `Location: ${location}` : null,
+      "",
+      `Service: ${service}`,
+      `Schedule: ${when || "--"}`,
+      `Assigned staff: ${staff}`,
+      "",
+      `Total: ${total}`,
+      "",
+      `Status: ${String(request?.status || "PENDING").toUpperCase()}`,
+      "",
+      `Generated: ${new Date().toLocaleString()}`
+    ]
+      .filter(Boolean)
+      .join("\n");
+  };
+
+  const buildReceipt = (request) => {
+    const id = String(request?.requestId || request?.id || "").trim() || "RCT";
+    const total = moneyLabel(request?.totalPrice);
+    const paidVia = formatPaymentMethodLabel(request?.paidVia || "N/A");
+    const paidAt = request?.paidAt ? new Date(Number(request.paidAt)).toLocaleString() : "N/A";
+    const customer = String(displayName || authUser?.email || "Customer");
+
+    return [
+      "HOUSECLEAN RECEIPT",
+      "",
+      `Receipt: ${id}`,
+      `Customer: ${customer}`,
+      "",
+      `Amount: ${total}`,
+      `Paid via: ${paidVia}`,
+      `Paid at: ${paidAt}`,
+      "",
+      `Generated: ${new Date().toLocaleString()}`
+    ].join("\n");
+  };
+
+  const sendNotification = async ({ toUserId, title, body, requestId }) => {
+    if (!toUserId) return;
+    const listRef = rtdbRef(rtdb, `UserNotifications/${String(toUserId)}`);
+    const notifRef = push(listRef);
+    await rtdbSet(notifRef, {
+      title: String(title || "Update"),
+      body: String(body || ""),
+      requestId: String(requestId || ""),
+      createdAt: rtdbServerTimestamp(),
+      read: false,
+      source: "web"
+    });
+  };
+
+  const openPaymentModal = (request) => {
+    if (!request) return;
+    setPaymentTarget(request);
+    setPaymentTxn("");
+    setPaymentModalOpen(true);
+  };
+
+  const handleSubmitQrPayment = async () => {
+    if (!paymentTarget) return;
+    const id = String(paymentTarget.id || paymentTarget.requestId || "").trim();
+    if (!id || !paymentTxn.trim()) return;
+    try {
+      setPaymentSaving(true);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+        status: "CONFIRMED",
+        paymentStatus: "PAID",
+        paidVia: "STATIC_QR",
+        paidAt: rtdbServerTimestamp(),
+        paymentTransactionId: paymentTxn.trim(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      const staffId = String(paymentTarget.housekeeperId || "").trim();
+      if (staffId) {
+        await sendNotification({
+          toUserId: staffId,
+          requestId: id,
+          title: "Booking confirmed (Paid)",
+          body: `${paymentTarget?.serviceType || "Service"} has been paid via QR. Please review the job.`
+        });
+      }
+      setPaymentModalOpen(false);
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
+  const handleConfirmCashPayment = async () => {
+    if (!paymentTarget) return;
+    const id = String(paymentTarget.id || paymentTarget.requestId || "").trim();
+    if (!id) return;
+    try {
+      setPaymentSaving(true);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+        status: "RESERVED",
+        paymentStatus: "RESERVED",
+        paidVia: "CASH_ON_HAND",
+        cashOnHandConfirmed: true,
+        cashConfirmedAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      const staffId = String(paymentTarget.housekeeperId || "").trim();
+      if (staffId) {
+        await sendNotification({
+          toUserId: staffId,
+          requestId: id,
+          title: "Cash on Hand reserved",
+          body: `${paymentTarget?.serviceType || "Service"} is reserved for cash payment on arrival.`
+        });
+      }
+      setPaymentModalOpen(false);
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
+  const promoCode = String(
+    profile?.referralCode ||
+      profile?.promoCode ||
+      (authUser?.uid ? `HC-${authUser.uid.slice(-6).toUpperCase()}` : "HC-000000")
+  ).trim();
+  const promoCredits = Number(profile?.promoCredits || profile?.referralCredits || 0) || 0;
 
   const history = (myRequests || []).map((r) => {
     const hours = r.durationHours ?? r.hours ?? null;
@@ -291,7 +746,9 @@ function Customer() {
       hours: hours == null ? "--" : String(hours),
       payout: payoutLabel,
       status: statusText,
-      photos
+      photos,
+      feedbackRating: r.feedbackRating ?? null,
+      feedbackComment: r.feedbackComment ?? ""
     };
   });
 
@@ -317,228 +774,224 @@ function Customer() {
         onNotificationsOpen={markNotificationsSeen}
       />
 
-      <div className="layout">
+      <div className="layout two-col">
         <CustomerSidebar
           open={sidebarOpen}
           items={getCustomerSidebarItems(basePath)}
         />
+        <CustomerMain
+          basePath={basePath}
+          onRequestCleaning={() => setDashboardBookingOpen(true)}
+          history={history}
+          myRequestsLoading={myRequestsLoading}
+          latestRequest={latestRequest}
+          formatWhen={formatWhen}
+          preferredStaffId={preferredStaffId}
+          preferredStaffName={preferredStaffName}
+          preferredStaffRole={preferredStaffRole}
+          preferredStaffList={preferredStaffWithAvatars}
+          onSelectPreferredStaff={handlePreferredStaffSelect}
+          promoCode={promoCode}
+          promoCredits={promoCredits}
+          onOpenPaymentModal={openPaymentModal}
+          staffDirectory={staffDirectory}
+          staffDirectoryLoading={staffDirectoryLoading}
+        />
+      </div>
 
-        <main className="main">
-          <section className="panel card hero" id="dashboard">
-            <div>
-              <p className="eyebrow">Welcome back</p>
-              <h1>Stay Organized with HOUSECLEAN</h1>
-              <p className="muted">
-                Choose your service, set the time, and we'll handle the rest.
-              </p>
-              <div className="quick-actions">
+      <BookingWizardModal
+        open={dashboardBookingOpen}
+        onClose={() => setDashboardBookingOpen(false)}
+        authUser={authUser}
+        profile={profile}
+        displayName={displayName}
+        addressLine={addressLine || profile?.location || ""}
+        preferredStaffId={preferredStaffId}
+        preferredStaffName={preferredStaffName}
+        preferredStaffRole={preferredStaffRole}
+        onSubmitted={(requestId) => {
+          setDashboardBookingOpen(false);
+          setSubmittedRequestId(String(requestId || ""));
+          setSubmittedMessage(
+            "Your request has been submitted. Please wait for a householder staff to confirm. " +
+              "You can track the status in the request list."
+          );
+          setShowSubmittedModal(true);
+        }}
+      />
+
+      {showSubmittedModal && (
+        <div className="customer-modal">
+          <div
+            className="customer-modal__backdrop"
+            onClick={() => setShowSubmittedModal(false)}
+          />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true">
+            <div className="customer-modal__icon">
+              <i className="fas fa-check"></i>
+            </div>
+            <h4>Request submitted</h4>
+            <p>{submittedMessage}</p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setShowSubmittedModal(false)}
+              >
+                Okay
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={() => {
+                  setShowSubmittedModal(false);
+                  navigate(`${basePath}/requests`, {
+                    state: { openTrackFor: submittedRequestId }
+                  });
+                }}
+              >
+                Track request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {paymentModalOpen && paymentTarget && (
+        <div className="share-modal payment-modal">
+          <div
+            className="share-modal__backdrop"
+            onClick={() => setPaymentModalOpen(false)}
+          />
+          <div
+            className="share-modal__panel payment-modal__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Request details"
+          >
+            <div className="share-modal__header">
+              <h4>Request details</h4>
+              <button
+                className="icon-btn share-close"
+                type="button"
+                onClick={() => setPaymentModalOpen(false)}
+                aria-label="Close details"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="share-modal__body">
+              <div className="payment-modal__meta">
+                <strong>{paymentTarget.serviceType || "Service"}</strong>
+                <span className="muted small">
+                  {formatDateTimeLabel(
+                    paymentTarget.startDate,
+                    paymentTarget.date,
+                    paymentTarget.time
+                  )}
+                </span>
+                <span className="pill stat">{moneyLabel(paymentTarget.totalPrice)}</span>
+              </div>
+              <div className="payment-modal__details">
+                <div>
+                  <span className="muted tiny">Request ID</span>
+                  <strong>{paymentTarget.requestId || paymentTarget.id || "--"}</strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Status</span>
+                  <strong>{String(paymentTarget.status || "PENDING").toUpperCase()}</strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Payment</span>
+                  <strong>
+                    {formatPaymentMethodLabel(
+                      paymentTarget.paymentMethod || paymentTarget.paidVia
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span className="muted tiny">Assigned staff</span>
+                  <strong>{paymentTarget.housekeeperName || "Unassigned"}</strong>
+                </div>
+              </div>
+              <div className="payment-modal__actions">
                 <button
-                  className="btn primary"
+                  className="btn pill ghost"
                   type="button"
-                  onClick={() => navigate(`${basePath}/requests`, { state: { openBooking: true } })}
+                  onClick={() =>
+                    downloadFile(
+                      `invoice_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
+                      buildInvoice(paymentTarget)
+                    )
+                  }
                 >
-                  <i className="fas fa-plus-circle"></i> Request Cleaning
+                  Download invoice
                 </button>
-                <Link className="btn ghost" to={`${basePath}/payments`}><i className="fas fa-wallet"></i> Pay Cleaning</Link>
-                <Link className="btn ghost" to={`${basePath}/requests`}><i className="fas fa-list-check"></i> View All Requests</Link>
-              </div>
-            </div>
-          </section>
-          <div className="grid-2">
-            <section className="panel card payments-card" id="payments">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">Payments</p>
-                </div>
-                <span className="pill soft amber">Secure checkout</span>
-              </div>
-              <div className="payment-grid compact">
-                <div className="pay-card">
-                  <p className="mini-label">Outstanding</p>
-                  <h3>PHP 1,750</h3>
-                  <p className="muted small">Due Friday for REQ-8620</p>
-                  <button className="btn pill primary small">Pay now</button>
-                </div>
-                <div className="pay-card">
-                  <p className="mini-label">Receipts</p>
-                  <h3>Download</h3>
-                  <p className="muted small">View recent invoices</p>
-                  <button className="btn pill ghost small">View receipts</button>
-                </div>
-                <div className="pay-card">
-                  <p className="mini-label">Methods</p>
-                  <h3>GCash •••• 8123</h3>
-                  <p className="muted small">Role-protected</p>
-                  <button className="btn pill ghost small">Manage methods</button>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          
-
-          <div className="grid-2">
-            <section className="panel card history" id="history">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">History</p>
-                  <h3>Past services</h3>
-                </div>
-                <button className="btn pill ghost">Export CSV</button>
-              </div>
-              <div className="history-table"> 
-                <div className="history-head"> 
-                  <span>Job</span> 
-                  <span>Date</span> 
-                  <span>Hours</span> 
-                  <span>Payout</span> 
-                  <span>Status</span> 
-                </div> 
-                {myRequestsLoading ? (
-                  <div className="history-empty muted small">Loading your requests...</div>
-                ) : history.length === 0 ? (
-                  <div className="history-empty muted small">No requests yet. Submit one above to sync with staff.</div>
-                ) : (
-                  history.map((h) => (
-                    <div key={h.id} className="history-row"> 
-                      <span className="job-cell">
-                        <span className="job-title">{h.job}</span>
-                        {Array.isArray(h.photos) && h.photos.length > 0 && (
-                          <span className="history-photos" aria-label="Request photos">
-                            {h.photos.slice(0, 3).map((u) => (
-                              <img key={u} src={u} alt="Request" loading="lazy" />
-                            ))}
-                          </span>
-                        )}
-                      </span>
-                      <span>{h.date}</span> 
-                      <span>{h.hours}</span> 
-                      <span>{h.payout}</span> 
-                      <span className={`chip ${h.status.toLowerCase()}`}>{h.status}</span> 
-                    </div> 
-                  ))
+                {canShowReceipt && (
+                  <button
+                    className="btn pill ghost"
+                    type="button"
+                    onClick={() =>
+                      downloadFile(
+                        `receipt_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
+                        buildReceipt(paymentTarget)
+                      )
+                    }
+                  >
+                    Receipt
+                  </button>
                 )}
-              </div> 
-            </section> 
-          </div> 
+              </div>
 
-          {false && (
-          <div className="grid-2">
-            <section className="panel card profile-card" id="settings">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">Settings</p>
-                  <h3>Profile</h3>
+              {showQrPayment && (
+                <div className="payment-inline">
+                  <p className="muted small">Enter the transaction ID from your QR payment.</p>
+                  <input
+                    type="text"
+                    placeholder="Transaction ID"
+                    value={paymentTxn}
+                    onChange={(e) => setPaymentTxn(e.target.value)}
+                  />
+                  <button
+                    className="btn pill primary"
+                    type="button"
+                    disabled={!paymentTxn.trim() || paymentSaving}
+                    onClick={handleSubmitQrPayment}
+                  >
+                    {paymentSaving ? "Saving..." : "Submit QR Payment"}
+                  </button>
                 </div>
-                <span className="pill stat">Role-verified</span>
-              </div>
-              <div className="profile-meta-grid">
-                <div>
-                  <p className="mini-label">Name</p>
-                  <strong>{profileLoading ? "Loading..." : (displayName || "—")}</strong>
-                </div>
-                <div>
-                  <p className="mini-label">Address</p>
-                  <strong>{profileLoading ? "Loading..." : (addressLine || profile?.location || "—")}</strong>
-                </div>
-                <div>
-                  <p className="mini-label">Contact</p>
-                  <strong>{profileLoading ? "Loading..." : (contactLine || "—")}</strong>
-                </div>
-                <div>
-                  <p className="mini-label">Email</p>
-                  <strong>{profileLoading ? "Loading..." : (profile?.email || authUser?.email || "—")}</strong>
-                </div>
-              </div>
-              <div className="profile-actions">
-                <button className="btn pill ghost" type="button">Edit profile</button>
-                <button className="btn pill primary" type="button">Account security</button>
-              </div>
-            </section>
+              )}
 
-            <section className="panel card settings-card">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">Security</p>
-                  <h3>Account security</h3>
+              {canConfirmCash && (
+                <div className="payment-inline">
+                  <p className="muted small">Confirm that you will pay in cash when the staff arrives.</p>
+                  <button
+                    className="btn pill primary"
+                    type="button"
+                    disabled={paymentSaving}
+                    onClick={handleConfirmCashPayment}
+                  >
+                    {paymentSaving ? "Saving..." : "Confirm Cash on Hand"}
+                  </button>
                 </div>
-                <span className="pill soft green">Protected</span>
-              </div>
-              <div className="settings-grid-lite">
-                <label>
-                  Email
-                  <input type="email" value={profile?.email || authUser?.email || ""} readOnly />
-                </label>
-                <label>
-                  Phone
-                  <input type="text" value={contactLine || ""} readOnly />
-                </label>
-                <label className="full">
-                  Password
-                  <input type="password" placeholder="••••••••••••" readOnly />
-                </label>
-                <label className="full">
-                  Two-factor authentication
-                  <div className="switch-row">
-                    <span>Enable OTP</span>
-                    <input type="checkbox" disabled />
-                  </div>
-                </label>
-              </div>
-            </section>
-          </div>
-          )}
-        </main>
-
-        <aside className="right-rail">
-          <section className="panel card">
-            <p className="eyebrow">Next cleaning</p>
-            <h3>Thu • 2:00 PM</h3>
-            <p className="muted small">Bonuan - Deep clean</p>
-            <button className="btn pill ghost small">View details</button>
-          </section>
-
-          <section className="panel card">
-            <p className="eyebrow">Pending payment</p>
-            <h3>PHP 1,750</h3>
-            <p className="muted small">Due in 2 days</p>
-            <button className="btn pill primary small">Quick pay</button>
-          </section>
-
-          <section className="panel card notifications" id="notifications">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">Notifications</p>
-                <h4>Recent</h4>
-              </div>
-              <button className="btn pill ghost small">Mark all read</button>
-            </div>
-            <div className="notification-list">
-              {notificationsLoading ? (
-                <div className="notification-item">
-                  <p className="muted small">Loading notifications...</p>
-                </div>
-              ) : notifications.length === 0 ? (
-                <div className="notification-item">
-                  <p className="muted small">No notifications yet.</p>
-                </div>
-              ) : (
-                notifications.map((n) => (
-                  <div key={n.id} className="notification-item">
-                    <div className="notification-top">
-                      <span className="notification-title">{n.title || "Update"}</span>
-                      <span className="muted tiny">{formatWhen(n.createdAt) || "Just now"}</span>
-                    </div>
-                    <p className="notification-body">{n.body}</p>
-                  </div>
-                ))
               )}
             </div>
-          </section>
-        </aside>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default Customer;
+
+
+
+
+
+
+
+
+
+
+

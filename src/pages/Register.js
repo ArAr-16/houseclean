@@ -29,6 +29,9 @@ function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const navigate = useNavigate();
+  const blockSpaceKey = (e) => {
+    if (e.key === " ") e.preventDefault();
+  };
 
   const isValidName = (value, allowSpaces = false) => {
     const trimmed = value.trim();
@@ -45,6 +48,19 @@ function Register() {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setError('');
+
+    if (name === "password" || name === "confirmPassword") {
+      const hasSpaces = /\s/.test(value);
+      const cleaned = value.replace(/\s/g, "");
+      if (hasSpaces) {
+        setError("Password cannot contain spaces.");
+        setErrorFields((prev) => ({ ...prev, [name]: true }));
+      } else {
+        setErrorFields((prev) => ({ ...prev, [name]: false }));
+      }
+      setFormData((prev) => ({ ...prev, [name]: cleaned }));
+      return;
+    }
 
     if (name === "phone") {
       const digitsOnly = value.replace(/\D/g, "").slice(0, 11);
@@ -100,6 +116,14 @@ function Register() {
     if (formData.password.length < 6 || formData.password.length > 16) {
       setError('Password must be 6 to 16 characters.');
       nextErrors.password = true;
+      setErrorFields(nextErrors);
+      setIsSubmitting(false);
+      return;
+    }
+    if (/\s/.test(formData.password) || /\s/.test(formData.confirmPassword)) {
+      setError("Password cannot contain spaces.");
+      nextErrors.password = true;
+      nextErrors.confirmPassword = true;
       setErrorFields(nextErrors);
       setIsSubmitting(false);
       return;
@@ -165,7 +189,8 @@ function Register() {
       role: "Householder",
       id: user.uid,
       status: "active",
-      joined: new Date().toISOString().slice(0, 10)
+      joined: new Date().toISOString().slice(0, 10),
+      avatarSeed: "housekeeper"
     };
 
     // If a database write is blocked by security rules, the account can still be created in Auth.
@@ -377,6 +402,7 @@ function Register() {
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
+                      onKeyDown={blockSpaceKey}
                       required
                       placeholder="Enter your password"
                       className={errorFields.password ? "input-error" : ""}
@@ -390,6 +416,7 @@ function Register() {
                       <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
                     </button>
                   </div>
+                  <p className="muted small"></p>
                 </div>
                 <div className="form-group">
                   <label htmlFor="confirmPassword">Confirm Password</label>
@@ -400,6 +427,7 @@ function Register() {
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleChange}
+                      onKeyDown={blockSpaceKey}
                       required
                       placeholder="Confirm your password"
                       className={errorFields.confirmPassword ? "input-error" : ""}
@@ -413,6 +441,7 @@ function Register() {
                       <i className={`fas ${showConfirm ? "fa-eye-slash" : "fa-eye"}`}></i>
                     </button>
                   </div>
+                  <p className="muted small"></p>
                 </div>
                 <div className="form-group">
                   <button type="submit" className="submit-btn" disabled={isSubmitting || success}>

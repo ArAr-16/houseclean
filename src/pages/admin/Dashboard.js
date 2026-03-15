@@ -45,10 +45,12 @@ function Dashboard() {
   const unreadCount = unreadNotifications.length;
   const { monthLabel, monthDays, visibleMonth, visibleYear } = useMemo(() => {
     const base = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
-    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    const totalDays = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
     const leading = base.getDay();
     const cells = Array.from({ length: leading }, () => null);
-    for (let d = 1; d <= end; d += 1) cells.push(d);
+    for (let d = 1; d <= totalDays; d += 1) cells.push(d);
+    const trailing = (7 - (cells.length % 7)) % 7;
+    for (let t = 0; t < trailing; t += 1) cells.push(null);
     return {
       monthLabel: base.toLocaleString("default", { month: "long", year: "numeric" }),
       monthDays: cells,
@@ -372,7 +374,10 @@ function Dashboard() {
                   visibleMonth === today.getMonth() &&
                   visibleYear === today.getFullYear();
                 return (
-                  <div key={`${d}-${idx}`} className={`calendar-cell ${isToday ? "today" : ""}`}>
+                  <div
+                    key={`${d}-${idx}`}
+                    className={`calendar-cell ${d ? "" : "empty"} ${isToday ? "today" : ""}`}
+                  >
                     {d || ""}
                   </div>
                 );
