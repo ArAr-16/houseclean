@@ -42,6 +42,15 @@ function Customer() {
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [paymentTxn, setPaymentTxn] = useState("");
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [queuedPaymentTarget, setQueuedPaymentTarget] = useState(null);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundTarget, setRefundTarget] = useState(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundError, setRefundError] = useState("");
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [showArrivalModal, setShowArrivalModal] = useState(false);
+  const [arrivalTarget, setArrivalTarget] = useState(null);
+  const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
   const [staffDirectory, setStaffDirectory] = useState([]);
   const [staffDirectoryLoading, setStaffDirectoryLoading] = useState(true);
   const navigate = useNavigate();
@@ -523,21 +532,29 @@ function Customer() {
       : null;
   })();
 
-  const activeStatus = paymentTarget ? String(paymentTarget.status || "").toUpperCase() : "";
-  const activePaymentStatus = paymentTarget
-    ? String(paymentTarget.paymentStatus || "").toUpperCase()
-    : "";
-  const activePaymentMethod = paymentTarget
-    ? String(paymentTarget.paymentMethod || paymentTarget.paidVia || "").toUpperCase()
-    : "";
-  const isPendingPayment = activeStatus === "PENDING_PAYMENT";
-  const canConfirmCash =
-    activePaymentMethod === "CASH_ON_HAND" &&
-    !["RESERVED", "PAID"].includes(activePaymentStatus) &&
-    activeStatus !== "COMPLETED";
-  const showQrPayment = isPendingPayment && activePaymentMethod === "STATIC_QR";
-  const canShowReceipt =
-    activePaymentStatus === "PAID" || ["CONFIRMED", "ACCEPTED", "COMPLETED"].includes(activeStatus);
+  const arrivalHandledRef = React.useRef(new Set());
+
+  useEffect(() => {
+    if (!notifications || notifications.length === 0) return;
+    if (!myRequests || myRequests.length === 0) return;
+    notifications.forEach((n) => {
+      const title = String(n.title || "").toLowerCase();
+      const body = String(n.body || "").toLowerCase();
+      const isArrival = title.includes("arrived") || body.includes("arrived");
+      if (!isArrival) return;
+      const requestId = String(n.requestId || "").trim();
+      if (!requestId) return;
+      const handledKey = `${requestId}_${String(n.id || "")}`;
+      if (arrivalHandledRef.current.has(handledKey)) return;
+      const match =
+        myRequests.find((r) => String(r.id || "") === requestId) ||
+        myRequests.find((r) => String(r.requestId || "") === requestId);
+      if (!match || match.customerArrivalConfirmed) return;
+      arrivalHandledRef.current.add(handledKey);
+      openArrivalModal(match);
+    });
+  }, [notifications, myRequests]);
+
 
   const moneyLabel = (value) => {
     const n = typeof value === "number" ? value : Number(value);
@@ -650,9 +667,127 @@ function Customer() {
 
   const openPaymentModal = (request) => {
     if (!request) return;
+    if (showArrivalModal) {
+      setQueuedPaymentTarget(request);
+      return;
+    }
     setPaymentTarget(request);
     setPaymentTxn("");
     setPaymentModalOpen(true);
+  };
+
+  const canRequestRefund = (req) => {
+    const status = String(req?.status || "").toUpperCase();
+    if (status === "COMPLETED") return false;
+    const paymentMethod = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+    if (paymentMethod !== "STATIC_QR") return false;
+    const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(req?.paidAt);
+    const refundStatus = String(req?.refundStatus || "").toUpperCase();
+    if (!paid) return false;
+    return !["REQUESTED", "APPROVED", "DENIED", "REFUNDED"].includes(refundStatus);
+  };
+
+  const openRefundModal = (request) => {
+    if (!request) return;
+    setRefundTarget(request);
+    setRefundReason("");
+    setRefundError("");
+    setShowRefundModal(true);
+  };
+
+  const handleSubmitRefund = async () => {
+    if (!refundTarget || !authUser?.uid) return;
+    const reason = String(refundReason || "").trim();
+    if (!reason) {
+      setRefundError("Please provide a reason for the refund request.");
+      return;
+    }
+    try {
+      setRefundSubmitting(true);
+      const refundListRef = rtdbRef(rtdb, "RefundRequests");
+      const refundRef = push(refundListRef);
+      const refundId = refundRef.key;
+      const requestId = String(refundTarget.requestId || refundTarget.id || "").trim();
+      const payload = {
+        refundId,
+        requestId,
+        customerId: authUser.uid,
+        customerName: String(displayName || authUser?.email || "Customer").trim(),
+        reason,
+        status: "PENDING",
+        serviceType: refundTarget.serviceType || refundTarget.service || "",
+        paymentMethod: String(refundTarget.paymentMethod || refundTarget.paidVia || ""),
+        paymentStatus: String(refundTarget.paymentStatus || ""),
+        paidAt: refundTarget.paidAt || "",
+        totalPrice: refundTarget.totalPrice || 0,
+        createdAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      };
+      await rtdbSet(refundRef, payload);
+      const adminNotifRef = push(rtdbRef(rtdb, "AdminNotifications"));
+      await rtdbSet(adminNotifRef, {
+        title: "Refund request",
+        message: `${payload.customerName} requested a refund for ${payload.serviceType || "a service"}.`,
+        type: "system",
+        status: "unread",
+        requestId,
+        refundRequestId: refundId,
+        customerId: payload.customerId,
+        reason,
+        createdAt: rtdbServerTimestamp()
+      });
+      if (requestId) {
+        await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+          refundStatus: "REQUESTED",
+          refundReason: reason,
+          refundRequestId: refundId,
+          refundRequestedAt: rtdbServerTimestamp(),
+          updatedAt: rtdbServerTimestamp()
+        });
+      }
+      setShowRefundModal(false);
+      setRefundTarget(null);
+      setRefundReason("");
+      setRefundError("");
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
+
+  const openArrivalModal = (req) => {
+    if (!req) return;
+    if (paymentModalOpen) {
+      setQueuedPaymentTarget(paymentTarget || req);
+      setPaymentModalOpen(false);
+      setPaymentTarget(null);
+    }
+    setArrivalTarget(req);
+    setShowArrivalModal(true);
+  };
+
+  const handleConfirmArrival = async () => {
+    if (!arrivalTarget || !authUser?.uid) return;
+    const requestId = String(arrivalTarget.requestId || arrivalTarget.id || "").trim();
+    if (!requestId) return;
+    try {
+      setArrivalSubmitting(true);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+        customerArrivalConfirmed: true,
+        customerArrivalConfirmedAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      setShowArrivalModal(false);
+      setArrivalTarget(null);
+      if (queuedPaymentTarget) {
+        setPaymentTarget(queuedPaymentTarget);
+        setPaymentTxn("");
+        setPaymentModalOpen(true);
+        setQueuedPaymentTarget(null);
+      }
+    } finally {
+      setArrivalSubmitting(false);
+    }
   };
 
   const handleSubmitQrPayment = async () => {
@@ -684,34 +819,6 @@ function Customer() {
     }
   };
 
-  const handleConfirmCashPayment = async () => {
-    if (!paymentTarget) return;
-    const id = String(paymentTarget.id || paymentTarget.requestId || "").trim();
-    if (!id) return;
-    try {
-      setPaymentSaving(true);
-      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
-        status: "RESERVED",
-        paymentStatus: "RESERVED",
-        paidVia: "CASH_ON_HAND",
-        cashOnHandConfirmed: true,
-        cashConfirmedAt: rtdbServerTimestamp(),
-        updatedAt: rtdbServerTimestamp()
-      });
-      const staffId = String(paymentTarget.housekeeperId || "").trim();
-      if (staffId) {
-        await sendNotification({
-          toUserId: staffId,
-          requestId: id,
-          title: "Cash on Hand reserved",
-          body: `${paymentTarget?.serviceType || "Service"} is reserved for cash payment on arrival.`
-        });
-      }
-      setPaymentModalOpen(false);
-    } finally {
-      setPaymentSaving(false);
-    }
-  };
 
   const promoCode = String(
     profile?.referralCode ||
@@ -794,6 +901,8 @@ function Customer() {
           promoCode={promoCode}
           promoCredits={promoCredits}
           onOpenPaymentModal={openPaymentModal}
+          onOpenRefundModal={openRefundModal}
+          canRequestRefund={canRequestRefund}
           staffDirectory={staffDirectory}
           staffDirectoryLoading={staffDirectoryLoading}
         />
@@ -813,7 +922,7 @@ function Customer() {
           setDashboardBookingOpen(false);
           setSubmittedRequestId(String(requestId || ""));
           setSubmittedMessage(
-            "Your request has been submitted. Please wait for a householder staff to confirm. " +
+            "Your request has been submitted. Please wait for a housekeeper to be accepted the request. " +
               "You can track the status in the request list."
           );
           setShowSubmittedModal(true);
@@ -897,6 +1006,14 @@ function Customer() {
                   <strong>{paymentTarget.requestId || paymentTarget.id || "--"}</strong>
                 </div>
                 <div>
+                  <span className="muted tiny">Services</span>
+                  <strong>
+                    {Array.isArray(paymentTarget.serviceTypes) && paymentTarget.serviceTypes.length > 0
+                      ? paymentTarget.serviceTypes.join(", ")
+                      : paymentTarget.serviceType || "--"}
+                  </strong>
+                </div>
+                <div>
                   <span className="muted tiny">Status</span>
                   <strong>{String(paymentTarget.status || "PENDING").toUpperCase()}</strong>
                 </div>
@@ -926,55 +1043,143 @@ function Customer() {
                 >
                   Download invoice
                 </button>
-                {canShowReceipt && (
+                {canRequestRefund(paymentTarget) && (
                   <button
                     className="btn pill ghost"
                     type="button"
-                    onClick={() =>
-                      downloadFile(
-                        `receipt_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
-                        buildReceipt(paymentTarget)
-                      )
-                    }
+                    onClick={() => openRefundModal(paymentTarget)}
                   >
-                    Receipt
+                    Request refund
                   </button>
                 )}
               </div>
 
-              {showQrPayment && (
-                <div className="payment-inline">
-                  <p className="muted small">Enter the transaction ID from your QR payment.</p>
-                  <input
-                    type="text"
-                    placeholder="Transaction ID"
-                    value={paymentTxn}
-                    onChange={(e) => setPaymentTxn(e.target.value)}
-                  />
-                  <button
-                    className="btn pill primary"
-                    type="button"
-                    disabled={!paymentTxn.trim() || paymentSaving}
-                    onClick={handleSubmitQrPayment}
-                  >
-                    {paymentSaving ? "Saving..." : "Submit QR Payment"}
-                  </button>
-                </div>
-              )}
-
-              {canConfirmCash && (
-                <div className="payment-inline">
-                  <p className="muted small">Confirm that you will pay in cash when the staff arrives.</p>
-                  <button
-                    className="btn pill primary"
-                    type="button"
-                    disabled={paymentSaving}
-                    onClick={handleConfirmCashPayment}
-                  >
-                    {paymentSaving ? "Saving..." : "Confirm Cash on Hand"}
-                  </button>
-                </div>
-              )}
+              {String(paymentTarget.status || "").toUpperCase() === "PENDING_PAYMENT" &&
+                String(paymentTarget.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
+                  <div className="payment-inline">
+                    <p className="muted small">Enter the transaction ID from your QR payment.</p>
+                    <input
+                      type="text"
+                      placeholder="Transaction ID"
+                      value={paymentTxn}
+                      onChange={(e) => setPaymentTxn(e.target.value)}
+                    />
+                    <button
+                      className="btn pill primary"
+                      type="button"
+                      disabled={!paymentTxn.trim() || paymentSaving}
+                      onClick={handleSubmitQrPayment}
+                    >
+                      {paymentSaving ? "Saving..." : "Submit QR Payment"}
+                    </button>
+                  </div>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showArrivalModal && arrivalTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowArrivalModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Confirm staff arrival">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-user-check"></i>
+            </div>
+            <h4>Confirm staff arrival</h4>
+            <p className="muted small">
+              Please confirm the staff has arrived at your location before payment or service begins.
+            </p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={async () => {
+                  if (!arrivalTarget?.id && !arrivalTarget?.requestId) {
+                    setShowArrivalModal(false);
+                    setArrivalTarget(null);
+                    return;
+                  }
+                  try {
+                    setArrivalSubmitting(true);
+                    const requestId = String(arrivalTarget.requestId || arrivalTarget.id || "").trim();
+                    if (requestId) {
+                      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+                        staffArrived: false,
+                        staffArrivedAt: "",
+                        staffArrivedById: "",
+                        staffArrivedByName: "",
+                        customerArrivalConfirmed: false,
+                        customerArrivalDeclinedAt: rtdbServerTimestamp(),
+                        updatedAt: rtdbServerTimestamp()
+                      });
+                    }
+                  } finally {
+                    setArrivalSubmitting(false);
+                    setShowArrivalModal(false);
+                    setArrivalTarget(null);
+                    if (queuedPaymentTarget) {
+                      setPaymentTarget(queuedPaymentTarget);
+                      setPaymentTxn("");
+                      setPaymentModalOpen(true);
+                      setQueuedPaymentTarget(null);
+                    }
+                  }
+                }}
+                disabled={arrivalSubmitting}
+              >
+                Not yet
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleConfirmArrival}
+                disabled={arrivalSubmitting}
+              >
+                {arrivalSubmitting ? "Confirming..." : "Yes, staff arrived"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showRefundModal && refundTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowRefundModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Request refund">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-rotate-left"></i>
+            </div>
+            <h4>Request a refund</h4>
+            <p className="muted small">Tell us why you are requesting a refund.</p>
+            <label className="feedback-label">
+              Reason
+              <textarea
+                rows={4}
+                value={refundReason}
+                onChange={(e) => {
+                  setRefundReason(e.target.value);
+                  if (refundError) setRefundError("");
+                }}
+                
+              />
+            </label>
+            {refundError && <div className="feedback-error">{refundError}</div>}
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setShowRefundModal(false)}
+                disabled={refundSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleSubmitRefund}
+                disabled={refundSubmitting}
+              >
+                {refundSubmitting ? "Submitting..." : "Submit refund request"}
+              </button>
             </div>
           </div>
         </div>
@@ -984,14 +1189,3 @@ function Customer() {
 }
 
 export default Customer;
-
-
-
-
-
-
-
-
-
-
-

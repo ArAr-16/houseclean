@@ -2,7 +2,7 @@
 import "../../components/Admin.css";
 import { rtdb, auth, secondaryAuth, functions } from "../../firebase";
 import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged } from "firebase/auth";
-import { ref, onValue, set, update as rtdbUpdate, remove } from "firebase/database";
+import { ref, onValue, set, update as rtdbUpdate, remove, serverTimestamp } from "firebase/database";
 import { httpsCallable } from "firebase/functions";
 
 const sampleStaff = [
@@ -20,7 +20,7 @@ const sampleStaff = [
     govId: "PH-8843-2211",
     barangayClearance: "Submitted",
     experience: "2 yrs part-time housekeeping",
-    skills: ["Housecleaning", "Deep Cleaning", "Laundry/Ironing"],
+    skills: ["Housecleaning", "Deep Cleaning", "Appliances Cleaning"],
     preferredService: "Housecleaning",
     availability: "Mon-Sat, 8am-5pm",
     trainingCompleted: true,
@@ -47,7 +47,7 @@ const sampleStaff = [
     govId: "PH-7721-0991",
     barangayClearance: "Pending",
     experience: "Hotel housekeeping, 3 yrs",
-    skills: ["Housecleaning", "Laundry/Ironing"],
+    skills: ["Housecleaning", "Appliances Cleaning"],
     preferredService: "Deep Cleaning",
     availability: "Tue-Sun, 10am-7pm",
     trainingCompleted: false,
@@ -93,7 +93,7 @@ const emptyForm = {
 const skillOptions = [
   "Housecleaning",
   "Deep Cleaning",
-  "Laundry/Ironing",
+  "Appliances Cleaning",
   "Other",
 ];
 
@@ -144,6 +144,9 @@ function ManageUsers() {
   const [statusFilter, setStatusFilter] = useState("all"); 
   const [roleFilter, setRoleFilter] = useState("all"); 
   const [currentUser, setCurrentUser] = useState(null); 
+  const [tableTab, setTableTab] = useState("active");
+  const [page, setPage] = useState(1);
+  const pageSize = 8;
 
   const buildDisplayName = (user) => {
     const full = String(user?.fullName || user?.name || "").replace(/\s+/g, " ").trim();
@@ -228,13 +231,26 @@ function ManageUsers() {
       ]
         .join(" ")
         .toLowerCase();
-      const statusOk = statusFilter === "all" || (s.status || "").toLowerCase() === statusFilter;
+      const statusValue = (s.status || "").toLowerCase();
+      const inArchived = statusValue === "archived";
+      const tabOk = tableTab === "archived" ? inArchived : !inArchived;
+      const statusOk =
+        tableTab === "archived" ? true : statusFilter === "all" || statusValue === statusFilter;
       const roleOk = roleFilter === "all" || (s.role || "").toLowerCase() === roleFilter;
-      return combined.includes(term) && statusOk && roleOk;
+      return combined.includes(term) && tabOk && statusOk && roleOk;
     });
     if (results.length && !selected) setSelected(results[0]);
     return results;
-  }, [staff, search, selected, statusFilter, roleFilter]);
+  }, [staff, search, selected, statusFilter, roleFilter, tableTab]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredStaff.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const pagedStaff = filteredStaff.slice(startIndex, startIndex + pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, roleFilter, tableTab]);
 
   const handleToggleStatus = (id) => {
     setStaff((prev) =>
@@ -249,6 +265,16 @@ function ManageUsers() {
       const nextStatus = target.status === "active" ? "disabled" : "active";
       rtdbUpdate(ref(rtdb, `Users/${id}`), { status: nextStatus }).catch(() => {});
     }
+  };
+
+  const handleArchiveUser = (id) => {
+    setStaff((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "archived", archivedAt: Date.now() } : s))
+    );
+    rtdbUpdate(ref(rtdb, `Users/${id}`), {
+      status: "archived",
+      archivedAt: serverTimestamp()
+    }).catch(() => {});
   };
 
   const handleDelete = async (id) => {
@@ -569,6 +595,22 @@ function ManageUsers() {
                   <p className="eyebrow">Staff roster</p>
                   <h4>Accounts & Roles</h4>
                 </div>
+                <div className="table-tabs">
+                  <button
+                    className={`btn pill ghost ${tableTab === "active" ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setTableTab("active")}
+                  >
+                    Active
+                  </button>
+                  <button
+                    className={`btn pill ghost ${tableTab === "archived" ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setTableTab("archived")}
+                  >
+                    Archived
+                  </button>
+                </div>
                 <div className="filters-row">
                   <div className="search-box modern">
                     <i className="fas fa-search" />
@@ -614,7 +656,7 @@ function ManageUsers() {
                   </thead>
                   <tbody>
                     {filteredStaff.length ? ( 
-                      filteredStaff.map((s, idx) => ( 
+                      pagedStaff.map((s, idx) => ( 
                         (() => {
                           const rowName = buildDisplayName(s);
                           const rowInitials = buildInitials(s);
@@ -631,7 +673,7 @@ function ManageUsers() {
                             setShowProfile(true);
                           }}
                           > 
-                          <td className="fit">{idx + 1}</td> 
+                          <td className="fit">{startIndex + idx + 1}</td> 
                           <td className="user-name compact col-name"> 
                             <span className="user-avatar"> 
                               {rowInitials} 
@@ -646,6 +688,7 @@ function ManageUsers() {
                               {s.status === "active" && "Active"} 
                               {s.status === "pending" && "Pending"}
                               {s.status === "disabled" && "Disabled"}
+                              {s.status === "archived" && "Archived"}
                             </span>
                           </td>
                           <td className="col-role">
@@ -667,26 +710,41 @@ function ManageUsers() {
                             )}
                           </td>
                           <td className="col-actions actions-cell">
-                            <button
-                              className="icon-btn ghost"
-                              title={s.status === "active" ? "Disable" : "Activate"}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleStatus(s.id);
-                              }}
-                            >
-                              <i className={s.status === "active" ? "fas fa-ban" : "fas fa-check"}></i>
-                            </button>
-                            <button
-                              className="icon-btn ghost danger"
-                              title="Delete"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(s.id);
-                              }}
-                            >
-                              <i className="fas fa-trash-alt"></i>
-                            </button> 
+                            {tableTab !== "archived" ? (
+                              <>
+                                <button
+                                  className="icon-btn ghost"
+                                  title={s.status === "active" ? "Disable" : "Activate"}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleStatus(s.id);
+                                  }}
+                                >
+                                  <i className={s.status === "active" ? "fas fa-ban" : "fas fa-check"}></i>
+                                </button>
+                                <button
+                                  className="icon-btn ghost"
+                                  title="Archive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleArchiveUser(s.id);
+                                  }}
+                                >
+                                  <i className="fas fa-archive"></i>
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="icon-btn ghost danger"
+                                title="Delete"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(s.id);
+                                }}
+                              >
+                                <i className="fas fa-trash-alt"></i>
+                              </button>
+                            )}
                           </td> 
                         </tr> 
                           );
@@ -701,6 +759,29 @@ function ManageUsers() {
                     )}
                   </tbody>
                 </table>
+              </div>
+              <div className="table-footer">
+                <div className="table-pagination">
+                  <button
+                    className="btn pill ghost"
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Prev
+                  </button>
+                  <span className="muted small">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    className="btn pill ghost"
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             </div>
 

@@ -1,14 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import "../../components/Admin.css";
-
-const mockHistory = [
-  { id: 1, action: "User Alice created", when: "2026-02-01 09:12", type: "user-add", status: "success" },
-  { id: 2, action: "User Bob disabled", when: "2026-02-03 14:05", type: "user-disable", status: "warning" },
-  { id: 3, action: "Password reset for Cathy", when: "2026-02-05 11:22", type: "password-reset", status: "info" },
-  { id: 4, action: "Admin login - IP: 192.168.1.1", when: "2026-02-10 08:30", type: "login", status: "success" },
-  { id: 5, action: "Service configuration updated", when: "2026-02-10 10:15", type: "config", status: "info" },
-  { id: 6, action: "Database backup completed", when: "2026-02-10 16:45", type: "backup", status: "success" },
-];
+import { rtdb } from "../../firebase";
+import { onValue, ref } from "firebase/database";
 
 const getActivityIcon = (type) => {
   const icons = {
@@ -18,6 +11,7 @@ const getActivityIcon = (type) => {
     login: <i className="fas fa-sign-in-alt"></i>,
     config: <i className="fas fa-cog"></i>,
     backup: <i className="fas fa-database"></i>,
+    refund: <i className="fas fa-rotate-left"></i>,
   };
   return icons[type] || <i className="fas fa-pen"></i>;
 };
@@ -25,13 +19,33 @@ const getActivityIcon = (type) => {
 function History() {
   const [status, setStatus] = useState("all");
   const [type, setType] = useState("all");
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    const historyRef = ref(rtdb, "AdminHistory");
+    const unsub = onValue(historyRef, (snap) => {
+      const val = snap.val();
+      if (!val) {
+        setHistory([]);
+        return;
+      }
+      const list = Object.entries(val).map(([id, data]) => ({
+        id,
+        ...data,
+        createdAt: data?.createdAt || 0
+      }));
+      list.sort((a, b) => (Number(b.createdAt || 0) || 0) - (Number(a.createdAt || 0) || 0));
+      setHistory(list);
+    });
+    return () => unsub();
+  }, []);
   const filtered = useMemo(() => {
-    return mockHistory.filter((h) => {
+    return (history || []).filter((h) => {
       const sOk = status === "all" || h.status === status;
       const tOk = type === "all" || h.type === type;
       return sOk && tOk;
     });
-  }, [status, type]);
+  }, [history, status, type]);
 
   return (
     <div className="admin-page neo-admin">
@@ -51,29 +65,29 @@ function History() {
                 </button>
               </div>
             </div>
-            <div className="countdown-pill">
-              <span className="pill-label">Records</span>
-              <strong>{filtered.length}</strong>
-              <small>shown</small>
-            </div>
+              <div className="countdown-pill">
+                <span className="pill-label">Records</span>
+                <strong>{filtered.length}</strong>
+                <small>shown</small>
+              </div>
           </div>
 
           <div className="mini-stats">
             <div className="mini-card">
               <div className="mini-icon green"><i className="fas fa-check-circle" /></div>
-              <div><p className="mini-label">Success</p><h3>{mockHistory.filter((h) => h.status === "success").length}</h3></div>
+              <div><p className="mini-label">Success</p><h3>{filtered.filter((h) => h.status === "success").length}</h3></div>
             </div>
             <div className="mini-card">
               <div className="mini-icon amber"><i className="fas fa-exclamation-triangle" /></div>
-              <div><p className="mini-label">Warnings</p><h3>{mockHistory.filter((h) => h.status === "warning").length}</h3></div>
+              <div><p className="mini-label">Warnings</p><h3>{filtered.filter((h) => h.status === "warning").length}</h3></div>
             </div>
             <div className="mini-card">
               <div className="mini-icon blue"><i className="fas fa-info-circle" /></div>
-              <div><p className="mini-label">Info</p><h3>{mockHistory.filter((h) => h.status === "info").length}</h3></div>
+              <div><p className="mini-label">Info</p><h3>{filtered.filter((h) => h.status === "info").length}</h3></div>
             </div>
             <div className="mini-card">
               <div className="mini-icon pink"><i className="fas fa-database" /></div>
-              <div><p className="mini-label">Backups</p><h3>{mockHistory.filter((h) => h.type === "backup").length}</h3></div>
+              <div><p className="mini-label">Backups</p><h3>{filtered.filter((h) => h.type === "backup").length}</h3></div>
             </div>
           </div>
 
@@ -98,6 +112,7 @@ function History() {
                   <option value="login">Login</option>
                   <option value="config">Config</option>
                   <option value="backup">Backup</option>
+                  <option value="refund">Refund</option>
                 </select>
               </div>
             </div>
@@ -109,10 +124,13 @@ function History() {
                     <span className="history-icon" style={{ color: "var(--admin-accent, #f1b856)" }}>{getActivityIcon(h.type)}</span>
                   </div>
                   <div className="history-content">
-                    <div className="history-action-text">{h.action}</div>
+                    <div className="history-action-text">{h.action || h.message || "Activity"}</div>
                     <div className="history-meta">
-                      <span className="history-time"><i className="fas fa-clock"></i> {h.when}</span>
-                      <span className={`history-badge badge-${h.status}`}>{h.status}</span>
+                      <span className="history-time">
+                        <i className="fas fa-clock"></i>{" "}
+                        {h.when || (h.createdAt ? new Date(h.createdAt).toLocaleString() : "--")}
+                      </span>
+                      <span className={`history-badge badge-${h.status}`}>{h.status || "info"}</span>
                     </div>
                   </div>
                 </div>

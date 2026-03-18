@@ -1,20 +1,22 @@
 import React from "react";
+import { rtdb } from "../../../firebase";
+import {
+  onValue,
+  ref as rtdbRef,
+  remove as rtdbRemove,
+  serverTimestamp as rtdbServerTimestamp,
+  set as rtdbSet
+} from "firebase/database";
 
 function StaffMain({
   showGuest,
   isStaffRole,
-  availability,
-  availabilityLabel,
-  toggleAvailability,
   assignedTodayCount,
   nextJobLabel,
   pendingPaymentsCount,
   notificationsLoading,
   notifications,
-  handleClockIn,
-  handleClockOut,
   ratingDisplay,
-  latestFeedback,
   tasks,
   completedTasks = [],
   requests,
@@ -25,21 +27,16 @@ function StaffMain({
   currentUserId,
   paymentMethodByRequestId,
   setPaymentMethodByRequestId,
+  customerAvatarSeeds = {},
   handleRequestAction,
   handleComplete,
   handleCashPaymentReceived,
-  history,
-  attendanceEntries = [],
-  attendanceLoading = false,
+  handleStaffArrived,
   markAllRead,
   formatWhenShort,
   visibleSections = {},
   onGoToRequests,
-  onGoToHistory,
   onGoToSettings,
-  isClockedIn,
-  timeIn,
-  timeOut,
   staffServiceOptions = [],
   weekdayOptions = [],
   staffProfileForm,
@@ -53,12 +50,70 @@ function StaffMain({
   profileToast,
   onDismissProfileToast
 }) {
-  const isVisible = (key) => visibleSections[key] !== false;
+  const hasVisibilityConfig = visibleSections && Object.keys(visibleSections).length > 0;
+  const isVisible = (key) => {
+    if (hasVisibilityConfig) return visibleSections[key] === true;
+    return true;
+  };
   const [nowTime, setNowTime] = React.useState(new Date());
   const [activeRequest, setActiveRequest] = React.useState(null);
   const [showRequestModal, setShowRequestModal] = React.useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = React.useState(false);
+  const [showCashConfirm, setShowCashConfirm] = React.useState(false);
+  const [cashConfirmTarget, setCashConfirmTarget] = React.useState(null);
   const [completionToast, setCompletionToast] = React.useState("");
+  const [arrivedClickId, setArrivedClickId] = React.useState("");
+  const arrivedClickTimer = React.useRef(null);
+  const [historyTab, setHistoryTab] = React.useState("active");
+  const [historyPage, setHistoryPage] = React.useState(1);
+  const [archivedHistoryMap, setArchivedHistoryMap] = React.useState({});
+  const historyPageSize = 8;
+  const [themeMode, setThemeMode] = React.useState(() => {
+    if (typeof window === "undefined") return "light";
+    const saved = localStorage.getItem("theme");
+    return saved === "dark" ? "dark" : "light";
+  });
+  const createAvatarDataUri = (presetId) => {
+    const base = "data:image/svg+xml;charset=utf-8,";
+    const preset = String(presetId || "mop");
+    const map = {
+      mop: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><rect x=\"45\" y=\"18\" width=\"6\" height=\"42\" rx=\"3\" fill=\"#0EA5E9\"/><rect x=\"34\" y=\"54\" width=\"28\" height=\"8\" rx=\"4\" fill=\"#38BDF8\"/><path d=\"M28 62c6 10 34 10 40 0\" fill=\"none\" stroke=\"#0EA5E9\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+      broom: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEF3C7\" stroke=\"#F59E0B\" stroke-width=\"2\"/><rect x=\"46\" y=\"16\" width=\"4\" height=\"46\" rx=\"2\" fill=\"#B45309\"/><path d=\"M32 60h32l-6 16H38l-6-16z\" fill=\"#F59E0B\"/><path d=\"M38 60l2 8M44 60l2 8M50 60l2 8M56 60l2 8\" stroke=\"#B45309\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+      vacuum: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#EDE9FE\" stroke=\"#8B5CF6\" stroke-width=\"2\"/><rect x=\"30\" y=\"48\" width=\"28\" height=\"18\" rx=\"9\" fill=\"#8B5CF6\"/><circle cx=\"62\" cy=\"58\" r=\"8\" fill=\"#C4B5FD\"/><path d=\"M58 36h12\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M70 36v18\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>",
+      spray: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DCFCE7\" stroke=\"#22C55E\" stroke-width=\"2\"/><rect x=\"40\" y=\"34\" width=\"16\" height=\"8\" rx=\"3\" fill=\"#22C55E\"/><rect x=\"36\" y=\"42\" width=\"24\" height=\"34\" rx=\"8\" fill=\"#4ADE80\"/><path d=\"M56 30h10\" stroke=\"#16A34A\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"72\" cy=\"34\" r=\"3\" fill=\"#22C55E\"/></svg>",
+      bucket: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DBEAFE\" stroke=\"#3B82F6\" stroke-width=\"2\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#60A5FA\"/><path d=\"M36 32c0-6 24-6 24 0\" fill=\"none\" stroke=\"#3B82F6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M38 54c6 6 14 6 20 0\" stroke=\"#3B82F6\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+      apron: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FFE4E6\" stroke=\"#F43F5E\" stroke-width=\"2\"/><path d=\"M34 28c8 10 20 10 28 0\" fill=\"none\" stroke=\"#F43F5E\" stroke-width=\"3\" stroke-linecap=\"round\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#FB7185\"/><rect x=\"40\" y=\"48\" width=\"16\" height=\"10\" rx=\"4\" fill=\"#FFE4E6\"/></svg>",
+      gloves: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEE2E2\" stroke=\"#EF4444\" stroke-width=\"2\"/><path d=\"M30 54c0-10 6-14 10-14s6 4 6 8v20H36c-4 0-6-4-6-14z\" fill=\"#F87171\"/><path d=\"M60 50c0-8 6-12 10-12s6 4 6 8v18H66c-4 0-6-4-6-14z\" fill=\"#FB7185\"/></svg>",
+      housekeeper: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0E7FF\" stroke=\"#6366F1\" stroke-width=\"2\"/><circle cx=\"48\" cy=\"38\" r=\"12\" fill=\"#A5B4FC\"/><path d=\"M28 74c4-16 36-16 40 0\" fill=\"#818CF8\"/><path d=\"M38 36c6 4 14 4 20 0\" stroke=\"#6366F1\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+      sparkle_home: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#ECFCCB\" stroke=\"#65A30D\" stroke-width=\"2\"/><path d=\"M26 50l22-18 22 18v22H26V50z\" fill=\"#84CC16\"/><path d=\"M44 72V56h8v16\" fill=\"#D9F99D\"/><path d=\"M70 30l4 4m0-4l-4 4\" stroke=\"#65A30D\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+      bubbles: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><circle cx=\"36\" cy=\"52\" r=\"12\" fill=\"#BAE6FD\"/><circle cx=\"58\" cy=\"42\" r=\"10\" fill=\"#7DD3FC\"/><circle cx=\"58\" cy=\"64\" r=\"8\" fill=\"#38BDF8\"/></svg>"
+    };
+    const svg = map[preset] || map.mop;
+    return `${base}${encodeURIComponent(svg)}`;
+  };
+  const getInitials = (name) => {
+    const words = String(name || "")
+      .replace(/[^A-Za-z0-9 ]/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length >= 2) return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+    return (words.join("") || "CU").slice(0, 2).toUpperCase();
+  };
+  const getCustomerAvatar = (req) => {
+    const name = req?.householderName || req?.customer || "Customer";
+    const customerId = String(req?.householderId || req?.customerId || "").trim();
+    const seed = String(
+      customerAvatarSeeds?.[customerId] ||
+        req?.householderAvatarSeed ||
+        req?.customerAvatarSeed ||
+        req?.customerAvatar ||
+        req?.avatarSeed ||
+        ""
+    ).trim();
+    const url = seed ? createAvatarDataUri(seed) : "";
+    return { name, initials: getInitials(name), url };
+  };
   const profileForm = staffProfileForm || {};
   const avatarPresets = [
     {
@@ -159,44 +214,18 @@ function StaffMain({
   }, []);
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    if (themeMode === "dark") root.classList.add("dark-mode");
+    else root.classList.remove("dark-mode");
+    localStorage.setItem("theme", themeMode);
+  }, [themeMode]);
+
+  React.useEffect(() => {
     if (!completionToast) return undefined;
     const timer = setTimeout(() => setCompletionToast(""), 3000);
     return () => clearTimeout(timer);
   }, [completionToast]);
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const calendarCells = [];
-  for (let i = 0; i < firstDay; i += 1) calendarCells.push(null);
-  for (let day = 1; day <= daysInMonth; day += 1) calendarCells.push(day);
-
-  const toDateKey = (value) => {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
-  const attendanceByDate = (attendanceEntries || []).reduce((acc, entry) => {
-    const key = String(entry.dateKey || "") || toDateKey(entry.timeIn);
-    if (!key) return acc;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(entry);
-    return acc;
-  }, {});
-
-  const formatTime = (value) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "--";
-    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  };
-
   const todayLabel = nowTime.toLocaleDateString([], {
     weekday: "long",
     year: "numeric",
@@ -207,7 +236,17 @@ function StaffMain({
   const formatSchedule = (req) => {
     const startDate = req?.startDate || "";
     const combined = `${req?.date || ""} ${req?.time || ""}`.trim();
-    return startDate || combined || "--";
+    const raw = String(startDate || combined || "").trim();
+    if (!raw) return "--";
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    const dateLabel = parsed.toLocaleDateString([], {
+      month: "short",
+      day: "2-digit",
+      year: "numeric"
+    });
+    const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
   };
 
   const formatPaymentMethodLabel = (value) => {
@@ -215,6 +254,88 @@ function StaffMain({
     if (key === "STATIC_QR") return "Static QR";
     if (key === "CASH_ON_HAND") return "Cash on Hand";
     return value ? String(value) : "--";
+  };
+
+  React.useEffect(() => {
+    const uid = String(currentUserId || "").trim();
+    if (!uid) {
+      setArchivedHistoryMap({});
+      return undefined;
+    }
+    const archiveRef = rtdbRef(rtdb, `StaffHistoryArchive/${uid}`);
+    const stop = onValue(archiveRef, (snap) => {
+      setArchivedHistoryMap(snap.val() || {});
+    });
+    return () => stop();
+  }, [currentUserId]);
+
+  const staffHistory = React.useMemo(() => {
+    const list = (requests || [])
+      .filter((r) => {
+        const status = String(r.status || "").toLowerCase();
+        return status === "completed" || Boolean(r.completedAt);
+      })
+      .map((r) => {
+        const completedAt = r.completedAt || r.updatedAt || r.createdAt || "";
+        const serviceLabel = r.serviceType || r.service || "Service";
+        const location = r.location || r.address || "";
+        const job = location ? `${serviceLabel} - ${location}` : serviceLabel;
+        const total =
+          typeof r.totalPrice === "number" && Number.isFinite(r.totalPrice) && r.totalPrice > 0
+            ? `PHP ${Math.round(r.totalPrice).toLocaleString()}`
+            : r.payout || "PHP --";
+        const method = formatPaymentMethodLabel(r.paymentMethod || r.paidVia);
+          return {
+            id: r.requestId || r.id,
+            job,
+            date: completedAt ? formatWhenShort(completedAt) : "--",
+            payout: total,
+            status: String(r.status || "completed").toLowerCase(),
+            payment: method,
+            completedAt: completedAt ? Number(completedAt) || 0 : 0
+          };
+      });
+    return list.sort((a, b) => (Number(b.completedAt || 0) || 0) - (Number(a.completedAt || 0) || 0));
+  }, [requests, formatWhenShort]);
+
+  const archivedHistoryList = React.useMemo(() => {
+    return Object.entries(archivedHistoryMap || {})
+      .map(([id, data]) => ({ id, ...(data || {}) }))
+      .sort((a, b) => (Number(b.archivedAt || b.completedAt || 0) || 0) - (Number(a.archivedAt || a.completedAt || 0) || 0));
+  }, [archivedHistoryMap]);
+
+  const archivedHistoryIds = React.useMemo(
+    () => new Set(archivedHistoryList.map((h) => h.id)),
+    [archivedHistoryList]
+  );
+
+  const activeHistoryList = React.useMemo(
+    () => staffHistory.filter((h) => !archivedHistoryIds.has(h.id)),
+    [staffHistory, archivedHistoryIds]
+  );
+
+  const historyVisible = historyTab === "archived" ? archivedHistoryList : activeHistoryList;
+  const historyTotalPages = Math.max(1, Math.ceil(historyVisible.length / historyPageSize));
+  const historyCurrentPage = Math.min(historyPage, historyTotalPages);
+  const historyStart = (historyCurrentPage - 1) * historyPageSize;
+  const historyPaged = historyVisible.slice(historyStart, historyStart + historyPageSize);
+
+  const archiveHistoryItem = async (item) => {
+    const uid = String(currentUserId || "").trim();
+    if (!uid || !item?.id) return;
+    const payload = {
+      ...item,
+      status: "ARCHIVED",
+      archivedAt: rtdbServerTimestamp(),
+      archivedById: uid
+    };
+    await rtdbSet(rtdbRef(rtdb, `StaffHistoryArchive/${uid}/${item.id}`), payload);
+  };
+
+  const deleteHistoryItem = async (item) => {
+    const uid = String(currentUserId || "").trim();
+    if (!uid || !item?.id) return;
+    await rtdbRemove(rtdbRef(rtdb, `StaffHistoryArchive/${uid}/${item.id}`));
   };
 
   const openRequestModal = (req) => {
@@ -228,6 +349,19 @@ function StaffMain({
     setShowRequestModal(false);
   };
 
+  const triggerArrivedClick = (req) => {
+    const id = String(req?.id || req?.requestId || "").trim();
+    if (!id) return;
+    setArrivedClickId(id);
+    if (arrivedClickTimer.current) {
+      clearTimeout(arrivedClickTimer.current);
+    }
+    arrivedClickTimer.current = setTimeout(() => {
+      setArrivedClickId("");
+      arrivedClickTimer.current = null;
+    }, 900);
+  };
+
   const openCompleteConfirm = () => {
     setShowCompleteConfirm(true);
   };
@@ -236,10 +370,26 @@ function StaffMain({
     setShowCompleteConfirm(false);
   };
 
+  const openCashConfirm = (req) => {
+    if (!req) return;
+    setCashConfirmTarget(req);
+    setShowCashConfirm(true);
+  };
+
+  const closeCashConfirm = () => {
+    setShowCashConfirm(false);
+    setCashConfirmTarget(null);
+  };
+
   const reservedCashRequests = (requests || []).filter((r) => {
     const statusLower = String(r.status || "").toLowerCase();
     const method = String(r.paymentMethod || r.paidVia || "").toUpperCase();
-    if (statusLower !== "reserved" || method !== "CASH_ON_HAND") return false;
+    const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+    const cashReserved =
+      method === "CASH_ON_HAND" && (paymentStatus === "RESERVED" || statusLower === "reserved");
+    if (!cashReserved) return false;
+    if (statusLower !== "accepted") return false;
+    if (!r.staffArrived || !r.customerArrivalConfirmed) return false;
     if (isHousekeeper) {
       const assignedId = String(r.housekeeperId || "").trim();
       return Boolean(currentUserId) && assignedId === currentUserId;
@@ -474,62 +624,53 @@ function StaffMain({
       )}
       {isVisible("dashboard") && (
         <section className="panel card staff-dashboard" id="dashboard">
-          <div className="dashboard-split">
-            <div className="dashboard-left">
-              <div className="dashboard-banner">
-                <div>
-                  <p className="mini-label">Houseclean</p>
-                  <h2>Welcome back{showGuest ? "" : `, ${profile?.fullName || profile?.name || profile?.email || "Staff"}`}</h2>
-                </div>
-              </div>
-
-
-              <div className="dashboard-actions">
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={() => {
-                    if (typeof onGoToRequests === "function") onGoToRequests();
-                    else document.getElementById("requests")?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                >
-                  View Assigned Requests
-                </button>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={() => {
-                    if (typeof onGoToHistory === "function") onGoToHistory();
-                    else document.getElementById("history")?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                >
-                  Confirm Attendance
-                </button>
-                <button
-                  className="btn ghost"
-                  type="button"
-                  onClick={() => {
-                    if (typeof onGoToSettings === "function") onGoToSettings();
-                    else document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                >
-                  Update Profile
-                </button>
-              </div>
-
-
-                <div className="dash-card">
-                  <div className="panel-header compact">
-                    <h4>Feedback & Ratings</h4>
-                  </div>
-                  <div className="rating-row">
-                    <span className="stars">*****</span>
-                    <strong>{ratingDisplay} Average Rating</strong>
-                  </div>
-                  <p className="muted small">"{latestFeedback}" - Householder</p>
-                </div>
-
+          <div className="dashboard-banner">
+            <div>
+              <p className="mini-label">Houseclean Staff</p>
+              <h2>
+                Welcome back{showGuest ? "" : `, ${profile?.fullName || profile?.name || profile?.email || "Staff"}`}
+              </h2>
+              <p className="muted small">{todayLabel}</p>
             </div>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="dash-stat">
+              <span className="muted small">Assigned today</span>
+              <strong>{assignedTodayCount}</strong>
+            </div>
+            <div className="dash-stat">
+              <span className="muted small">Next job</span>
+              <strong>{nextJobLabel}</strong>
+            </div>
+            <div className="dash-stat">
+              <span className="muted small">Pending payments</span>
+              <strong>{pendingPaymentsCount}</strong>
+            </div>
+            <div className="dash-stat">
+              <span className="muted small">Rating</span>
+              <strong>{ratingDisplay} / 5</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-actions">
+            <button
+              className="btn primary"
+              type="button"
+              onClick={() => {
+                if (typeof onGoToRequests === "function") onGoToRequests();
+                else document.getElementById("requests")?.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
+              View requests
+            </button>
+            <button
+              className="btn ghost"
+              type="button"
+              onClick={() => document.getElementById("payment-confirmations")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              Cash confirmations
+            </button>
           </div>
         </section>
       )}
@@ -552,6 +693,8 @@ function StaffMain({
             ) : (
               requests
                 .filter((r) => {
+                  const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+                  const hasPaid = paymentStatus === "PAID" || Boolean(r.paidAt);
                   if (isHousekeeper) {
                     const assignedId = String(r.housekeeperId || "").trim();
                     const statusLower = String(r.status || "PENDING").toLowerCase();
@@ -567,21 +710,27 @@ function StaffMain({
                   const isPending = statusClass === "pending";
                   const isConfirmed = statusClass === "confirmed";
                   const isReserved = statusClass === "reserved";
+                  const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+                  const paymentMethod = String(r.paymentMethod || r.paidVia || "").toUpperCase();
+                  const awaitingOnSitePayment =
+                    statusClass === "accepted" && paymentMethod === "CASH_ON_HAND" && paymentStatus === "RESERVED";
+                  const staffArrived = Boolean(r.staffArrived);
                   const customerName = r.householderName || r.customer || "Customer";
+                  const customerAvatar = getCustomerAvatar(r);
                   const serviceLabel = r.serviceType || r.service || "Service request";
-                  const timeLabel = r.startDate || r.preferredTime || "";
+                  const timeLabel = formatSchedule(r);
                   const assignedId = String(r.housekeeperId || "").trim();
                   const assignedName = String(r.housekeeperName || "").trim();
                   const assignedRole = String(r.housekeeperRole || "").trim();
                   const canActOnThis = !assignedId || (Boolean(currentUserId) && assignedId === currentUserId);
                   const canConfirm = isStaffManager && isPending;
                   const canAccept =
-                    ((isStaffManager && (isPending || isConfirmed)) ||
-                      (isHousekeeper && (isPending || isConfirmed))) &&
+                    ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
+                      (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
                     canActOnThis;
                   const canDecline =
-                    ((isStaffManager && (isPending || isConfirmed)) ||
-                      (isHousekeeper && (isPending || isConfirmed))) &&
+                    ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
+                      (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
                     canActOnThis;
                   const payoutLabel =
                     typeof r.totalPrice === "number" && Number.isFinite(r.totalPrice) && r.totalPrice > 0
@@ -611,7 +760,11 @@ function StaffMain({
                     >
                       <div className="row-main">
                         <div className="avatar-pill alt">
-                          {String(customerName || "??").slice(0, 2).toUpperCase()}
+                          {customerAvatar.url ? (
+                            <img src={customerAvatar.url} alt={customerAvatar.name} />
+                          ) : (
+                            customerAvatar.initials
+                          )}
                         </div>
                         <div>
                           <strong>{serviceLabel}</strong>
@@ -637,6 +790,14 @@ function StaffMain({
                       </div>
                       <div className="row-meta actions">
                         <span className="payout">{payoutLabel}</span>
+                        {awaitingOnSitePayment && (
+                          <span className="pill soft amber">Awaiting on-site payment</span>
+                        )}
+                        {staffArrived && (
+                          <span className="pill soft green arrived-pill arrived-pill--pulse">
+                            <i className="fas fa-check-circle" aria-hidden="true"></i> Arrived
+                          </span>
+                        )}
                         <button
                           className="icon-btn danger"
                           aria-label="Decline"
@@ -679,13 +840,18 @@ function StaffMain({
           <div className="board-items">
             {reservedCashRequests.map((r) => {
               const serviceLabel = r.serviceType || r.service || "Service request";
-              const timeLabel = r.startDate || r.preferredTime || "";
+              const timeLabel = formatSchedule(r);
               const customerName = r.householderName || r.customer || "Customer";
+              const customerAvatar = getCustomerAvatar(r);
               return (
                 <div key={r.id} className="board-row reserved">
                   <div className="row-main">
                     <div className="avatar-pill alt">
-                      {String(customerName || "??").slice(0, 2).toUpperCase()}
+                      {customerAvatar.url ? (
+                        <img src={customerAvatar.url} alt={customerAvatar.name} />
+                      ) : (
+                        customerAvatar.initials
+                      )}
                     </div>
                     <div>
                       <strong>{serviceLabel}</strong>
@@ -693,14 +859,17 @@ function StaffMain({
                         {customerName} - {r.location || "Location"}
                       </p>
                       {timeLabel && <p className="tiny muted">{timeLabel}</p>}
-                    </div>
-                  </div>
-                  <div className="row-meta actions">
-                    <span className="pill soft amber">Cash on hand</span>
+                </div>
+              </div>
+              <div className="row-meta actions">
+                <span className="pill soft amber">Cash on hand</span>
+                <span className="pill soft amber">Awaiting on-site payment</span>
                     <button
                       className="btn pill primary"
                       type="button"
-                      onClick={() => handleCashPaymentReceived?.(r)}
+                      onClick={() => {
+                        openCashConfirm(r);
+                      }}
                     >
                       Mark payment received
                     </button>
@@ -726,6 +895,7 @@ function StaffMain({
             ) : (
               tasks.map((t) => {
                 const relatedRequest = (requests || []).find((r) => String(r.id) === String(t.id));
+                const customerAvatar = relatedRequest ? getCustomerAvatar(relatedRequest) : null;
                 return (
                 <div
                   key={t.id}
@@ -742,10 +912,18 @@ function StaffMain({
                   }}
                 >
                   <div className="row-main">
-                    <div className="avatar-pill">{String(t.id).slice(-2)}</div>
+                    <div className="avatar-pill">
+                      {customerAvatar?.url ? (
+                        <img src={customerAvatar.url} alt={customerAvatar.name} />
+                      ) : (
+                        customerAvatar?.initials || String(t.id).slice(-2)
+                      )}
+                    </div>
                     <div>
                       <strong>{t.title}</strong>
-                      <p className="muted small">{t.time}</p>
+                      <p className="muted small">
+                        {relatedRequest ? formatSchedule(relatedRequest) : t.time}
+                      </p>
                     </div>
                   </div>
                   <div className="row-meta">
@@ -776,6 +954,7 @@ function StaffMain({
             ) : (
               completedTasks.map((t) => {
                 const relatedRequest = (requests || []).find((r) => String(r.id) === String(t.id));
+                const customerAvatar = relatedRequest ? getCustomerAvatar(relatedRequest) : null;
                 return (
                   <div
                     key={t.id}
@@ -792,10 +971,18 @@ function StaffMain({
                     }}
                   >
                     <div className="row-main">
-                      <div className="avatar-pill">{String(t.id).slice(-2)}</div>
+                      <div className="avatar-pill">
+                        {customerAvatar?.url ? (
+                          <img src={customerAvatar.url} alt={customerAvatar.name} />
+                        ) : (
+                          customerAvatar?.initials || String(t.id).slice(-2)
+                        )}
+                      </div>
                       <div>
                         <strong>{t.title}</strong>
-                        <p className="muted small">{t.time}</p>
+                        <p className="muted small">
+                          {relatedRequest ? formatSchedule(relatedRequest) : t.time}
+                        </p>
                       </div>
                     </div>
                     <div className="row-meta">
@@ -813,70 +1000,6 @@ function StaffMain({
       )}
 
       
-
-      {isVisible("schedule") && (
-        <section className="panel card calendar-card" id="calendar">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Schedule & Attendance</p>
-              <h4>{monthLabel}</h4>
-            </div>
-            <button className="btn pill ghost">Add event</button>
-          </div>
-          <div className="calendar-body">
-            <div className="attendance-calendar">
-              <div className="calendar-head">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <span key={d}>{d}</span>
-                ))}
-              </div>
-              <div className="calendar-grid">
-                {calendarCells.map((day, idx) => {
-                  if (!day) return <span key={`empty-${idx}`} className="calendar-cell empty"></span>;
-                  const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                  const hasAttendance = Boolean(attendanceByDate[dateKey]?.length);
-                  return (
-                    <span key={dateKey} className={`calendar-cell ${hasAttendance ? "has-attendance" : ""}`}>
-                      <span className="day-number">{day}</span>
-                      {hasAttendance && <span className="attendance-dot" aria-hidden="true"></span>}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {isVisible("history") && (
-        <section className="panel card" id="history">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">History & Attendance</p>
-              <h4>Log & Export</h4>
-            </div>
-            <button className="btn pill ghost">Export CSV</button>
-          </div>
-          <div className="history-table">
-            <div className="history-head">
-              <span>Job</span>
-              <span>Date</span>
-              <span>Hours</span>
-              <span>Payout</span>
-              <span>Status</span>
-            </div>
-            {history.map((h) => (
-              <div key={h.id} className="history-row">
-                <span>{h.job}</span>
-                <span>{h.date}</span>
-                <span>{h.hours}</span>
-                <span>{h.payout}</span>
-                <span className={`chip ${h.status}`}>{h.status}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {isVisible("notifications") && (
         <section className="panel card notifications" id="staff-notifications">
@@ -974,6 +1097,19 @@ function StaffMain({
                   <small>Payment status</small>
                   <strong>{activeRequest.paymentStatus || "--"}</strong>
                 </div>
+                {activeRequest?.staffArrived && (
+                  <div>
+                    <small>Arrival</small>
+                    <strong>
+                      <span className="pill soft green arrived-pill arrived-pill--pulse">
+                        <i className="fas fa-check-circle" aria-hidden="true"></i>{" "}
+                        {activeRequest.customerArrivalConfirmed
+                          ? "Confirmed by customer"
+                          : "Awaiting customer confirmation"}
+                      </span>
+                    </strong>
+                  </div>
+                )}
                 <div>
                   <small>Total</small>
                   <strong>
@@ -1009,18 +1145,16 @@ function StaffMain({
               <button className="btn ghost" type="button" onClick={closeRequestModal}>
                 Close
               </button>
-              {String(activeRequest.status || "").toLowerCase() === "reserved" &&
-                String(activeRequest.paymentMethod || activeRequest.paidVia || "").toUpperCase() === "CASH_ON_HAND" && (
+              {String(activeRequest.status || "").toLowerCase() === "accepted" &&
+                String(activeRequest.paymentStatus || "").toUpperCase() === "RESERVED" &&
+                String(activeRequest.paymentMethod || activeRequest.paidVia || "").toUpperCase() === "CASH_ON_HAND" &&
+                activeRequest.staffArrived &&
+                activeRequest.customerArrivalConfirmed && (
                   <button
                     className="btn primary"
                     type="button"
                     onClick={() => {
-                      if (typeof handleCashPaymentReceived === "function") {
-                        Promise.resolve(handleCashPaymentReceived(activeRequest)).then(() => {
-                          setCompletionToast("Cash payment received. Booking confirmed.");
-                        });
-                      }
-                      closeRequestModal();
+                      openCashConfirm(activeRequest);
                     }}
                   >
                     Mark payment received
@@ -1041,6 +1175,21 @@ function StaffMain({
                   Complete
                 </button>
               )}
+              {String(activeRequest.status || "").toLowerCase() === "accepted" &&
+                !activeRequest.staffArrived && (
+                  <button
+                    className={`btn ghost mark-arrived-btn ${
+                      String(activeRequest.id || "") === arrivedClickId ? "is-clicked" : ""
+                    }`}
+                    type="button"
+                    onClick={() => {
+                      triggerArrivedClick(activeRequest);
+                      handleStaffArrived?.(activeRequest);
+                    }}
+                  >
+                    Mark arrived
+                  </button>
+                )}
             </div>
           </div>
         </div>
@@ -1287,6 +1436,165 @@ function StaffMain({
             >
               {staffProfileSaving ? "Saving..." : "Save changes"}
             </button>
+          </div>
+
+          <div className="theme-card">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">Theme</p>
+                <h4>Appearance</h4>
+              </div>
+              <span className="pill soft">{themeMode === "dark" ? "Dark" : "Light"}</span>
+            </div>
+            <div className="theme-actions">
+              <button
+                className={`btn pill ${themeMode === "light" ? "primary" : "ghost"}`}
+                type="button"
+                onClick={() => setThemeMode("light")}
+              >
+                Light
+              </button>
+              <button
+                className={`btn pill ${themeMode === "dark" ? "primary" : "ghost"}`}
+                type="button"
+                onClick={() => setThemeMode("dark")}
+              >
+                Dark
+              </button>
+            </div>
+            <p className="muted small">Choose a theme to personalize your staff workspace.</p>
+          </div>
+        </section>
+      )}
+
+      {showCashConfirm && cashConfirmTarget && (
+        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Confirm payment received">
+          <div className="staff-request-modal__backdrop" onClick={closeCashConfirm} />
+          <div className="staff-request-modal__panel">
+            <div className="staff-request-modal__body">
+              <h3>Confirm payment received?</h3>
+              <p className="muted small">
+                Use this only after collecting the cash on-site. This will confirm the booking as paid.
+              </p>
+            </div>
+            <div className="staff-request-modal__footer">
+              <button className="btn ghost" type="button" onClick={closeCashConfirm}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => {
+                  if (typeof handleCashPaymentReceived === "function") {
+                    Promise.resolve(handleCashPaymentReceived(cashConfirmTarget)).then(() => {
+                      setCompletionToast("Cash payment received. Booking confirmed.");
+                    });
+                  }
+                  closeCashConfirm();
+                  closeRequestModal();
+                }}
+              >
+                Yes, confirm payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isVisible("history") && (
+        <section className="panel card" id="history">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">History</p>
+              <h4>Completed services</h4>
+            </div>
+          </div>
+          {requestsLoading ? (
+            <div className="empty-state">Loading service history...</div>
+          ) : historyVisible.length === 0 ? (
+            <div className="empty-state">No completed services yet.</div>
+          ) : (
+            <div className="history-table">
+            <div className="history-head">
+              <span>Job</span>
+              <span>When</span>
+              <span>Payout</span>
+              <span>Payment</span>
+              <span>Actions</span>
+            </div>
+            {historyPaged.map((h) => (
+              <div key={h.id} className="history-row">
+                <span>{h.job}</span>
+                <span>{h.date}</span>
+                <span>{h.payout}</span>
+                <span className={`chip ${h.status}`}>{h.payment}</span>
+                <div className="history-actions">
+                  {historyTab === "archived" ? (
+                    <button
+                      className="btn pill ghost danger"
+                      type="button"
+                      onClick={() => deleteHistoryItem(h)}
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <button
+                      className="btn pill ghost"
+                      type="button"
+                      onClick={() => archiveHistoryItem(h)}
+                    >
+                      Archive
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            </div>
+          )}
+          <div className="table-footer">
+            <div className="tab-row">
+              <button
+                className={`btn pill ghost ${historyTab === "active" ? "active" : ""}`}
+                type="button"
+                onClick={() => {
+                  setHistoryTab("active");
+                  setHistoryPage(1);
+                }}
+              >
+                Active
+              </button>
+              <button
+                className={`btn pill ghost ${historyTab === "archived" ? "active" : ""}`}
+                type="button"
+                onClick={() => {
+                  setHistoryTab("archived");
+                  setHistoryPage(1);
+                }}
+              >
+                Archived
+              </button>
+            </div>
+            <div className="table-pagination">
+              <button
+                className="btn pill ghost"
+                type="button"
+                disabled={historyCurrentPage <= 1}
+                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+              >
+                Prev
+              </button>
+              <span className="muted small">
+                Page {historyCurrentPage} of {historyTotalPages}
+              </span>
+              <button
+                className="btn pill ghost"
+                type="button"
+                disabled={historyCurrentPage >= historyTotalPages}
+                onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </section>
       )}

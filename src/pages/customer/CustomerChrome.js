@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./Customer.css";
 import Logo from "../../components/Logo.png";
@@ -51,12 +51,29 @@ function CustomerChrome({ children, layout = "two-col" }) {
   const [notifSeenAt, setNotifSeenAt] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
+  const prevPathRef = useRef(location.pathname);
 
   const basePath = String(location?.pathname || "").startsWith("/householder") ? "/householder" : "/customer";
 
   const sidebarItems = useMemo(() => getCustomerSidebarItems(basePath), [basePath]);
   const { notifications } = useCustomerNotifications(authUser?.uid, { limit: 1 });
   const latestNotifAt = Number(notifications?.[0]?.createdAt || 0) || 0;
+
+  useEffect(() => {
+    const prevPath = String(prevPathRef.current || "");
+    const nextPath = String(location?.pathname || "");
+    const leavingRequests = prevPath.includes("/requests") && !nextPath.includes("/requests");
+    if (leavingRequests && typeof document !== "undefined") {
+      document.body.style.overflow = "";
+      const stale = document.querySelectorAll(".customer-modal, .share-modal, .modal-overlay");
+      stale.forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        node.style.pointerEvents = "none";
+        node.style.display = "none";
+      });
+    }
+    prevPathRef.current = nextPath;
+  }, [location?.pathname]);
 
   useEffect(() => {
     if (!authUser?.uid) {

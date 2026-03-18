@@ -17,6 +17,76 @@ function moneyLabel(value) {
   return `PHP ${Math.round(n).toLocaleString()}`;
 }
 
+function normalizeStatus(raw) {
+  const value = String(raw || "").trim().toUpperCase();
+  if (value === "CANCELLED" || value === "DECLINED") return "CANCELLED";
+  if (value === "ACCEPTED") return "ACCEPTED";
+  if (value === "CONFIRMED") return "ACCEPTED";
+  if (value === "COMPLETED") return "COMPLETED";
+  return "PENDING";
+}
+
+function DetailedStatusTracker({ request }) {
+  const status = normalizeStatus(request?.status);
+  const paymentStatus = String(request?.paymentStatus || "").toUpperCase();
+  const paymentMethod = String(request?.paymentMethod || request?.paidVia || "").toUpperCase();
+  const hasPaymentMethod = Boolean(paymentMethod);
+  const paymentReceived = paymentStatus === "PAID" || Boolean(request?.paidAt);
+
+  const steps = (() => {
+    const baseSteps = [
+      { key: "requested", label: "Requested", ready: true },
+      {
+        key: "payment_set",
+        label: paymentMethod === "CASH_ON_HAND" ? "Cash on hand reserved" : "Payment method set",
+        ready: hasPaymentMethod
+      },
+      { key: "accepted", label: "Staff accepted", ready: status !== "PENDING" },
+      {
+        key: "payment_paid",
+        label: paymentMethod === "CASH_ON_HAND" ? "Payment received" : "Payment confirmed",
+        ready: paymentReceived
+      },
+      { key: "completed", label: "Service completed", ready: status === "COMPLETED" }
+    ];
+    let reached = true;
+    return baseSteps.map((step) => {
+      const done = reached && step.ready;
+      if (!done) reached = false;
+      return { key: step.key, label: step.label, done };
+    });
+  })();
+
+  const completedSteps = steps.filter((s) => s.done).length;
+  const progress =
+    steps.length <= 1 ? 100 : Math.max(0, ((completedSteps - 1) / (steps.length - 1)) * 100);
+  const percentLabel = `${Math.round(progress)}%`;
+
+  return (
+    <div
+      className={`status-tracker status-tracker--line status-${status.toLowerCase()}`}
+      aria-label={`Payment tracker: ${status}`}
+      style={{ "--progress": progress }}
+    >
+      <div className="status-line" aria-hidden="true">
+        <span className="status-line__bg"></span>
+        <span className="status-line__fill"></span>
+      </div>
+      <div className="status-line__percent" aria-hidden="true">
+        {percentLabel}
+      </div>
+      <div className="status-line__steps">
+        {steps.map((step) => (
+          <div key={step.key} className={`status-step ${step.done ? "on" : ""}`}>
+            <span className="status-dot" aria-hidden="true"></span>
+            <span className="status-label">{step.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function downloadFile(filename, content, mime = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -152,6 +222,11 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
   const [txnByRequest, setTxnByRequest] = useState({});
   const [savingId, setSavingId] = useState("");
   const [activePayment, setActivePayment] = useState(null);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundTarget, setRefundTarget] = useState(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundError, setRefundError] = useState("");
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
   const activeStatus = activePayment ? String(activePayment.status || "").toUpperCase() : "";
   const activeIsPendingPayment = activeStatus === "PENDING_PAYMENT";
   const activePaymentStatus = activePayment ? String(activePayment.paymentStatus || "").toUpperCase() : "";
@@ -185,6 +260,85 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
       read: false,
       source: "web"
     });
+  };
+
+  const canRequestRefund = (req) => {
+    const status = String(req?.status || "").toUpperCase();
+    if (status === "COMPLETED") return false;
+    const paymentMethod = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+    if (paymentMethod !== "STATIC_QR") return false;
+    const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(req?.paidAt);
+    const refundStatus = String(req?.refundStatus || "").toUpperCase();
+    if (!paid) return false;
+    return !["REQUESTED", "APPROVED", "DENIED", "REFUNDED"].includes(refundStatus);
+  };
+
+  const openRefundModal = (req) => {
+    if (!req) return;
+    setRefundTarget(req);
+    setRefundReason("");
+    setRefundError("");
+    setShowRefundModal(true);
+  };
+
+  const handleSubmitRefund = async () => {
+    if (!refundTarget || !ctx.authUser?.uid) return;
+    const reason = String(refundReason || "").trim();
+    if (!reason) {
+      setRefundError("Please provide a reason for the refund request.");
+      return;
+    }
+    try {
+      setRefundSubmitting(true);
+      const refundListRef = rtdbRef(rtdb, "RefundRequests");
+      const refundRef = push(refundListRef);
+      const refundId = refundRef.key;
+      const requestId = String(refundTarget.requestId || refundTarget.id || "").trim();
+      const payload = {
+        refundId,
+        requestId,
+        customerId: ctx.authUser.uid,
+        customerName: String(ctx.displayName || ctx.authUser?.email || "Customer").trim(),
+        reason,
+        status: "PENDING",
+        serviceType: refundTarget.serviceType || refundTarget.service || "",
+        paymentMethod: String(refundTarget.paymentMethod || refundTarget.paidVia || ""),
+        paymentStatus: String(refundTarget.paymentStatus || ""),
+        paidAt: refundTarget.paidAt || "",
+        totalPrice: refundTarget.totalPrice || 0,
+        createdAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      };
+      await rtdbSet(refundRef, payload);
+      const adminNotifRef = push(rtdbRef(rtdb, "AdminNotifications"));
+      await rtdbSet(adminNotifRef, {
+        title: "Refund request",
+        message: `${payload.customerName} requested a refund for ${payload.serviceType || "a service"}.`,
+        type: "system",
+        status: "unread",
+        requestId,
+        refundRequestId: refundId,
+        customerId: payload.customerId,
+        reason,
+        createdAt: rtdbServerTimestamp()
+      });
+      if (requestId) {
+        await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+          refundStatus: "REQUESTED",
+          refundReason: reason,
+          refundRequestId: refundId,
+          refundRequestedAt: rtdbServerTimestamp(),
+          updatedAt: rtdbServerTimestamp()
+        });
+      }
+      setShowRefundModal(false);
+      setRefundTarget(null);
+      setRefundReason("");
+      setRefundError("");
+    } finally {
+      setRefundSubmitting(false);
+    }
   };
 
   const handleSubmitQr = async (req) => {
@@ -284,7 +438,7 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
               <span>1. Open your GCash/Maya app.</span>
               <span>2. Scan the QR code.</span>
               <span>3. Enter the invoice amount.</span>
-              <span>4. Add the request ID in the notes.</span>
+              <span>4. Input the transaction ID on payment page.</span>
             </div>
           </div>
         )}
@@ -475,6 +629,15 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
                     Receipt
                   </button>
                 )}
+                {canRequestRefund(activePayment) && (
+                  <button
+                    className="btn pill ghost"
+                    type="button"
+                    onClick={() => openRefundModal(activePayment)}
+                  >
+                    Request refund
+                  </button>
+                )}
               </div>
               {activeIsPendingPayment && String(activePayment.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
                 <div className="payment-inline">
@@ -519,6 +682,50 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRefundModal && refundTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowRefundModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Request refund">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-rotate-left"></i>
+            </div>
+            <h4>Request a refund</h4>
+            <p className="muted small">Tell us why you are requesting a refund.</p>
+            <label className="feedback-label">
+              Reason
+              <textarea
+                rows={4}
+                value={refundReason}
+                onChange={(e) => {
+                  setRefundReason(e.target.value);
+                  if (refundError) setRefundError("");
+                }}
+                
+              />
+            </label>
+            {refundError && <div className="feedback-error">{refundError}</div>}
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setShowRefundModal(false)}
+                disabled={refundSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleSubmitRefund}
+                disabled={refundSubmitting}
+              >
+                {refundSubmitting ? "Submitting..." : "Submit refund request"}
+              </button>
             </div>
           </div>
         </div>

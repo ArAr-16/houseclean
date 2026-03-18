@@ -4,40 +4,21 @@ import { Link, useLocation } from "react-router-dom";
 function CustomerSidebar({ open = false, items = [] }) {
   const location = useLocation();
   const pathname = String(location?.pathname || "");
-  const hash = String(location?.hash || "");
 
   const normalizePath = (value) => String(value || "").replace(/\/+$/, "") || "/";
 
-  const isItemActive = (item) => {
-    if (typeof item?.active === "boolean") return item.active;
-
-    if (item?.to) {
-      const toRaw = String(item.to || "");
-      const [toPath, toHash = ""] = toRaw.split("#");
-      const toPathNorm = normalizePath(toPath);
-      const pathNorm = normalizePath(pathname);
-      const hashNorm = hash || "";
-      const wantHash = toHash ? `#${toHash}` : "";
-
-      if (toHash) return pathNorm === toPathNorm && hashNorm === wantHash;
-      if (item?.exact) return pathNorm === toPathNorm;
-      return pathNorm === toPathNorm || pathNorm.startsWith(`${toPathNorm}/`);
-    }
-
-    if (item?.href && String(item.href).startsWith("#")) {
-      const href = String(item.href);
-      if (hash) return hash === href;
-      return href === "#dashboard";
-    }
-
-    return false;
+  const isActive = (to, exact = false) => {
+    const target = normalizePath(to);
+    const current = normalizePath(pathname);
+    if (exact) return current === target;
+    return current === target || current.startsWith(`${target}/`);
   };
 
   return (
     <aside className={`sidebar ${open ? "open" : ""}`}>
       <nav>
         {items.map((item) => {
-          const className = isItemActive(item) ? "active" : "";
+          const className = item?.to ? (isActive(item.to, item.exact) ? "active" : "") : "";
           const icon = item.icon ? <i className={item.icon}></i> : null;
           const content = (
             <>
@@ -47,16 +28,24 @@ function CustomerSidebar({ open = false, items = [] }) {
 
           if (item.to) {
             return (
-              <Link key={item.key || item.to} to={item.to} className={className}>
+              <a
+                key={item.key || item.to}
+                href={item.to}
+                className={className}
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.location.href = item.to;
+                }}
+              >
                 {content}
-              </Link>
+              </a>
             );
           }
 
           return (
-            <a key={item.key || item.href || item.label} href={item.href || "#"} className={className}>
+            <span key={item.key || item.label} className={className}>
               {content}
-            </a>
+            </span>
           );
         })}
       </nav>

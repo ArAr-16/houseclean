@@ -8,7 +8,7 @@ function StaffDashboard() {
         dashboard: true,
         tasks: true,
         notifications: true,
-        settings: true
+        requests: true
       }}
     />
   );

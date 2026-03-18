@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
-import { useCustomerServiceRequests } from "./customerData";
+import { useCustomerNotifications, useCustomerServiceRequests } from "./customerData";
 import BookingWizardModal from "./BookingWizardModal";
 import { rtdb } from "../../firebase";
 import {
@@ -15,6 +15,7 @@ import {
 
 function normalizeStatus(raw) {
   const value = String(raw || "").trim().toUpperCase();
+  if (value === "CANCELLED" || value === "DECLINED") return "CANCELLED";
   if (value === "ACCEPTED") return "ACCEPTED";
   if (value === "CONFIRMED") return "ACCEPTED";
   if (value === "COMPLETED") return "COMPLETED";
@@ -24,7 +25,13 @@ function normalizeStatus(raw) {
 function StatusTracker({ status }) {
   const current = normalizeStatus(status);
   const label =
-    current === "COMPLETED" ? "Completed" : current === "ACCEPTED" ? "In-Progress" : "Pending";
+    current === "COMPLETED"
+      ? "Completed"
+      : current === "ACCEPTED"
+        ? "In-Progress"
+        : current === "CANCELLED"
+          ? "Cancelled"
+          : "Pending";
 
   return (
     <div
@@ -44,8 +51,80 @@ function StatusTracker({ status }) {
           </span>
         )}
         {current === "COMPLETED" && <i className="fas fa-check"></i>}
+        {current === "CANCELLED" && <i className="fas fa-times"></i>}
       </div>
       <span className="status-label">{label}</span>
+    </div>
+  );
+}
+
+function DetailedStatusTracker({ request }) {
+  const status = normalizeStatus(request?.status);
+  const paymentStatus = String(request?.paymentStatus || "").toUpperCase();
+  const paymentMethod = String(request?.paymentMethod || request?.paidVia || "").toUpperCase();
+  const hasPaymentMethod = Boolean(paymentMethod);
+  const paymentReceived = paymentStatus === "PAID" || Boolean(request?.paidAt);
+
+  const steps =
+    status === "CANCELLED"
+      ? [
+          { key: "requested", label: "Requested", done: true },
+          { key: "cancelled", label: "Cancelled", done: true }
+        ]
+      : (() => {
+          const baseSteps = [
+            { key: "requested", label: "Requested", ready: true },
+            {
+              key: "payment_set",
+              label: paymentMethod === "CASH_ON_HAND" ? "Cash on hand reserved" : "Payment method set",
+              ready: hasPaymentMethod
+            },
+            {
+              key: "accepted",
+              label: "Staff accepted",
+              ready: status !== "PENDING"
+            },
+            {
+              key: "payment_paid",
+              label: paymentMethod === "CASH_ON_HAND" ? "Payment received" : "Payment confirmed",
+              ready: paymentReceived
+            },
+            { key: "completed", label: "Service completed", ready: status === "COMPLETED" }
+          ];
+          let reached = true;
+          return baseSteps.map((step) => {
+            const done = reached && step.ready;
+            if (!done) reached = false;
+            return { key: step.key, label: step.label, done };
+          });
+        })();
+
+  const completedSteps = steps.filter((s) => s.done).length;
+  const progress =
+    steps.length <= 1 ? 100 : Math.max(0, ((completedSteps - 1) / (steps.length - 1)) * 100);
+  const percentLabel = `${Math.round(progress)}%`;
+
+  return (
+    <div
+      className={`status-tracker status-tracker--line status-${status.toLowerCase()}`}
+      aria-label={`Request tracker: ${status}`}
+      style={{ "--progress": progress }}
+    >
+      <div className="status-line" aria-hidden="true">
+        <span className="status-line__bg"></span>
+        <span className="status-line__fill"></span>
+      </div>
+      <div className="status-line__percent" aria-hidden="true">
+        {percentLabel}
+      </div>
+      <div className="status-line__steps">
+        {steps.map((step) => (
+          <div key={step.key} className={`status-step ${step.done ? "on" : ""}`}>
+            <span className="status-dot" aria-hidden="true"></span>
+            <span className="status-label">{step.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -74,20 +153,28 @@ function CustomerRequests() {
   const [pendingFeedbackId, setPendingFeedbackId] = useState("");
   const location = useLocation();
   const navigate = useNavigate();
+  const pathname = String(location?.pathname || "");
+  const isRequestsRoute = pathname.includes("/requests");
 
   useEffect(() => {
+    if (!isRequestsRoute) return;
     const shouldOpen = Boolean(location?.state?.openBooking);
     if (!shouldOpen) return;
     setBookingOpen(true);
     navigate(location.pathname, { replace: true, state: {} });
-  }, [location?.pathname, location?.state, navigate]);
+  }, [isRequestsRoute, location?.pathname, location?.state, navigate]);
 
   useEffect(() => {
+    if (!isRequestsRoute) return;
     const requestId = String(location?.state?.openFeedbackFor || "").trim();
     if (!requestId) return;
     setPendingFeedbackId(requestId);
     navigate(location.pathname, { replace: true, state: {} });
-  }, [location?.pathname, location?.state, navigate]);
+  }, [isRequestsRoute, location?.pathname, location?.state, navigate]);
+
+  if (!isRequestsRoute) {
+    return null;
+  }
 
   return (
     <CustomerChrome>
@@ -104,7 +191,9 @@ function CustomerRequests() {
         pendingFeedbackId={pendingFeedbackId}
         clearPendingFeedback={() => setPendingFeedbackId("")}
         openTrackFor={String(location?.state?.openTrackFor || "").trim()}
+        autoOpenTrackModal={Boolean(location?.state?.openTrackModal)}
         clearRouteState={() => navigate(location.pathname, { replace: true, state: {} })}
+        isActiveRoute={isRequestsRoute}
       />
     </CustomerChrome>
   );
@@ -125,12 +214,17 @@ function CustomerRequestsInner({
   pendingFeedbackId,
   clearPendingFeedback,
   openTrackFor,
-  clearRouteState
+  autoOpenTrackModal = false,
+  clearRouteState,
+  isActiveRoute = true
 }) {
+  const location = useLocation();
   const ctx = useCustomerChrome();
   const { requests, loading } = useCustomerServiceRequests(ctx.authUser?.uid);
+  const { notifications } = useCustomerNotifications(ctx.authUser?.uid, { limit: 80 });
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [activeRequest, setActiveRequest] = useState(null);
+  const [queuedTrackRequest, setQueuedTrackRequest] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackRequest, setFeedbackRequest] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(0);
@@ -139,6 +233,60 @@ function CustomerRequestsInner({
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundTarget, setRefundTarget] = useState(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [refundError, setRefundError] = useState("");
+  const [refundSubmitting, setRefundSubmitting] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [showArrivalModal, setShowArrivalModal] = useState(false);
+  const [arrivalTarget, setArrivalTarget] = useState(null);
+  const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
+  const arrivalHandledRef = React.useRef(new Set());
+
+  React.useEffect(() => {
+    return () => {
+      setShowTrackModal(false);
+      setActiveRequest(null);
+      setQueuedTrackRequest(null);
+      setShowFeedbackModal(false);
+      setFeedbackRequest(null);
+      setShowRefundModal(false);
+      setRefundTarget(null);
+      setShowCancelModal(false);
+      setCancelTarget(null);
+      setShowArrivalModal(false);
+      setArrivalTarget(null);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setShowTrackModal(false);
+    setActiveRequest(null);
+    setQueuedTrackRequest(null);
+    setShowFeedbackModal(false);
+    setFeedbackRequest(null);
+    setShowRefundModal(false);
+    setRefundTarget(null);
+    setShowCancelModal(false);
+    setCancelTarget(null);
+    setShowArrivalModal(false);
+    setArrivalTarget(null);
+  }, [location.pathname]);
+  const markArrivalNotificationRead = async (notifId) => {
+    const uid = ctx.authUser?.uid;
+    if (!uid || !notifId) return;
+    try {
+      await rtdbUpdate(rtdbRef(rtdb, `UserNotifications/${uid}/${notifId}`), {
+        read: true,
+        readAt: rtdbServerTimestamp()
+      });
+    } catch (_) {
+      // ignore
+    }
+  };
 
   const startBooking = () => {
     clearSuccess();
@@ -173,8 +321,171 @@ function CustomerRequestsInner({
     return `${dateLabel} • ${timeLabel}`;
   };
 
+  const canCancelRequest = (req) => {
+    const status = String(req?.status || "").toUpperCase();
+    if (["COMPLETED", "DECLINED", "CANCELLED"].includes(status)) return false;
+    const paymentMethod = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+    const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(req?.paidAt);
+    const staffConfirmed = Boolean(req?.customerArrivalConfirmed);
+    if (paymentMethod === "CASH_ON_HAND") {
+      return !paid && !["COMPLETED", "DECLINED", "CANCELLED"].includes(status);
+    }
+    if (staffConfirmed) return false;
+    return ["PENDING", "PENDING_PAYMENT", "ACCEPTED", "CONFIRMED"].includes(status);
+  };
+
+  const canRequestRefund = (req) => {
+    const status = String(req?.status || "").toUpperCase();
+    if (status === "COMPLETED") return false;
+    const paymentMethod = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+    if (paymentMethod !== "STATIC_QR") return false;
+    const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(req?.paidAt);
+    const refundStatus = String(req?.refundStatus || "").toUpperCase();
+    if (!paid) return false;
+    return !["REQUESTED", "APPROVED", "DENIED", "REFUNDED"].includes(refundStatus);
+  };
+
+  const openRefundModal = (req) => {
+    if (!req) return;
+    setRefundTarget(req);
+    setRefundReason("");
+    setRefundError("");
+    setShowRefundModal(true);
+  };
+
+  const openCancelModal = (req) => {
+    if (!req) return;
+    setCancelTarget(req);
+    setShowCancelModal(true);
+  };
+
+  const handleSubmitRefund = async () => {
+    if (!refundTarget || !ctx.authUser?.uid) return;
+    const reason = String(refundReason || "").trim();
+    if (!reason) {
+      setRefundError("Please provide a reason for the refund request.");
+      return;
+    }
+    try {
+      setRefundSubmitting(true);
+      const refundListRef = rtdbRef(rtdb, "RefundRequests");
+      const refundRef = push(refundListRef);
+      const refundId = refundRef.key;
+      const requestId = String(refundTarget.requestId || refundTarget.id || "").trim();
+      const payload = {
+        refundId,
+        requestId,
+        customerId: ctx.authUser.uid,
+        customerName: String(ctx.displayName || ctx.authUser?.email || "Customer").trim(),
+        reason,
+        status: "PENDING",
+        serviceType: refundTarget.serviceType || refundTarget.service || "",
+        paymentMethod: String(refundTarget.paymentMethod || refundTarget.paidVia || ""),
+        paymentStatus: String(refundTarget.paymentStatus || ""),
+        paidAt: refundTarget.paidAt || "",
+        totalPrice: refundTarget.totalPrice || 0,
+        createdAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      };
+      await rtdbSet(refundRef, payload);
+      const adminNotifRef = push(rtdbRef(rtdb, "AdminNotifications"));
+      await rtdbSet(adminNotifRef, {
+        title: "Refund request",
+        message: `${payload.customerName} requested a refund for ${payload.serviceType || "a service"}.`,
+        type: "system",
+        status: "unread",
+        requestId,
+        refundRequestId: refundId,
+        customerId: payload.customerId,
+        reason,
+        createdAt: rtdbServerTimestamp()
+      });
+      if (requestId) {
+        await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+          refundStatus: "REQUESTED",
+          refundReason: reason,
+          refundRequestId: refundId,
+          refundRequestedAt: rtdbServerTimestamp(),
+          updatedAt: rtdbServerTimestamp()
+        });
+      }
+      setShowRefundModal(false);
+      setRefundTarget(null);
+      setRefundReason("");
+      setRefundError("");
+    } finally {
+      setRefundSubmitting(false);
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget || !ctx.authUser?.uid) return;
+    const requestId = String(cancelTarget.requestId || cancelTarget.id || "").trim();
+    if (!requestId) return;
+    try {
+      setCancelSubmitting(true);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+        status: "CANCELLED",
+        cancelledAt: rtdbServerTimestamp(),
+        cancelledById: ctx.authUser.uid,
+        cancelledByName: String(ctx.displayName || ctx.authUser?.email || "Customer").trim(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      setShowCancelModal(false);
+      setCancelTarget(null);
+    } finally {
+      setCancelSubmitting(false);
+    }
+  };
+
+  const openArrivalModal = (req) => {
+    if (!req) return;
+    if (showTrackModal) {
+      setQueuedTrackRequest(activeRequest || req);
+      setShowTrackModal(false);
+      setActiveRequest(null);
+    }
+    setArrivalTarget(req);
+    setShowArrivalModal(true);
+  };
+
+  const handleConfirmArrival = async () => {
+    if (!arrivalTarget || !ctx.authUser?.uid) return;
+    const requestId = String(arrivalTarget.requestId || arrivalTarget.id || "").trim();
+    if (!requestId) return;
+    try {
+      setArrivalSubmitting(true);
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+        customerArrivalConfirmed: true,
+        customerArrivalConfirmedAt: rtdbServerTimestamp(),
+        updatedAt: rtdbServerTimestamp()
+      });
+      const handledKey = `${requestId}_${String(arrivalTarget?.staffArrivedAt || "")}`;
+      const storageKey = `hc_arrival_handled_${ctx.authUser?.uid || "guest"}_${handledKey}`;
+      arrivalHandledRef.current.add(handledKey);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(storageKey, "1");
+      }
+      setShowArrivalModal(false);
+      setArrivalTarget(null);
+      if (queuedTrackRequest) {
+        setActiveRequest(queuedTrackRequest);
+        setShowTrackModal(true);
+        setQueuedTrackRequest(null);
+      }
+    } finally {
+      setArrivalSubmitting(false);
+    }
+  };
+
   const openTrackModal = (req) => {
     if (!req) return;
+    if (showArrivalModal) {
+      setQueuedTrackRequest(req);
+      return;
+    }
     setActiveRequest(req);
     setShowTrackModal(true);
   };
@@ -274,6 +585,7 @@ function CustomerRequestsInner({
   };
 
   React.useEffect(() => {
+    if (!isActiveRoute) return;
     if (!pendingFeedbackId) return;
     if (!requests || requests.length === 0) return;
     const match =
@@ -283,20 +595,77 @@ function CustomerRequestsInner({
     openTrackModal(match);
     openFeedbackModal(match);
     if (typeof clearPendingFeedback === "function") clearPendingFeedback();
-  }, [pendingFeedbackId, requests, clearPendingFeedback]);
+  }, [pendingFeedbackId, requests, clearPendingFeedback, isActiveRoute]);
 
   React.useEffect(() => {
+    if (!isActiveRoute) return;
     if (!openTrackFor) return;
     if (!requests || requests.length === 0) return;
     const match =
       requests.find((r) => String(r.id || "") === openTrackFor) ||
       requests.find((r) => String(r.requestId || "") === openTrackFor);
     if (match) {
-      openTrackModal(match);
-      if (typeof setSuccessId === "function") setSuccessId(openTrackFor);
+      if (autoOpenTrackModal) {
+        openTrackModal(match);
+      } else {
+        if (typeof setSuccessId === "function") setSuccessId(openTrackFor);
+        document.getElementById("customer-requests-tracker")?.scrollIntoView({
+          behavior: "smooth"
+        });
+      }
     }
     if (typeof clearRouteState === "function") clearRouteState();
-  }, [openTrackFor, requests, clearRouteState, setSuccessId]);
+  }, [openTrackFor, requests, clearRouteState, setSuccessId, autoOpenTrackModal, isActiveRoute]);
+
+  React.useEffect(() => {
+    if (!isActiveRoute) return;
+    if (!notifications || notifications.length === 0) return;
+    if (!requests || requests.length === 0) return;
+    if (showArrivalModal) return;
+    if (showTrackModal || showRefundModal || showCancelModal || showFeedbackModal) return;
+    const nextArrival = notifications.find((n) => {
+      const title = String(n.title || "").toLowerCase();
+      const body = String(n.body || "").toLowerCase();
+      const isArrival = title.includes("arrived") || body.includes("arrived");
+      if (!isArrival) return false;
+      const requestId = String(n.requestId || "").trim();
+      if (!requestId) return false;
+      const match =
+        requests.find((r) => String(r.id || "") === requestId) ||
+        requests.find((r) => String(r.requestId || "") === requestId);
+      if (!match || match.customerArrivalConfirmed || match.customerArrivalConfirmedAt) {
+        if (n.id) markArrivalNotificationRead(n.id);
+        return false;
+      }
+      const handledKey = `${requestId}_${String(match.staffArrivedAt || "")}`;
+      const storageKey = `hc_arrival_handled_${ctx.authUser?.uid || "guest"}_${handledKey}`;
+      if (arrivalHandledRef.current.has(handledKey)) return false;
+      if (typeof window !== "undefined" && localStorage.getItem(storageKey)) return false;
+      return true;
+    });
+    if (!nextArrival) return;
+    const requestId = String(nextArrival.requestId || "").trim();
+    const match =
+      requests.find((r) => String(r.id || "") === requestId) ||
+      requests.find((r) => String(r.requestId || "") === requestId);
+    if (!match) return;
+    const handledKey = `${requestId}_${String(match.staffArrivedAt || "")}`;
+    const storageKey = `hc_arrival_handled_${ctx.authUser?.uid || "guest"}_${handledKey}`;
+    arrivalHandledRef.current.add(handledKey);
+    if (typeof window !== "undefined") localStorage.setItem(storageKey, "1");
+    if (nextArrival.id) markArrivalNotificationRead(nextArrival.id);
+    openArrivalModal(match);
+  }, [
+    notifications,
+    requests,
+    ctx.authUser?.uid,
+    showArrivalModal,
+    showTrackModal,
+    showRefundModal,
+    showCancelModal,
+    showFeedbackModal,
+    isActiveRoute
+  ]);
 
   return (
     <>
@@ -331,7 +700,7 @@ function CustomerRequestsInner({
           setSuccessId(String(requestId || ""));
           setBookingOpen(false);
           setToastMessage(
-            "Your request has been submitted. Please wait for a householder staff to confirm. " +
+            "Your request has been submitted. Please wait for a housekeeper to be accepted the request. " +
               "You can track the status in the request list."
           );
           setShowSubmittedModal(true);
@@ -367,6 +736,7 @@ function CustomerRequestsInner({
               <option value="PENDING">Pending</option>
               <option value="ACCEPTED">Accepted</option>
               <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
             </select>
           </div>
         </div>
@@ -407,7 +777,8 @@ function CustomerRequestsInner({
     const grouped = {
       PENDING: [],
       ACCEPTED: [],
-      COMPLETED: []
+      COMPLETED: [],
+      CANCELLED: []
     };
     filtered.forEach((r) => {
       const bucket = normalizeStatus(r.status);
@@ -455,7 +826,7 @@ function CustomerRequestsInner({
                   </div>
 
                   <div className="request-status">
-                    <StatusTracker status={r.status} />
+                    <DetailedStatusTracker request={r} />
                   </div>
                 </div>
               );
@@ -474,6 +845,7 @@ function CustomerRequestsInner({
         {renderGroup("Pending", grouped.PENDING)}
         {renderGroup("Accepted / In-Progress", grouped.ACCEPTED)}
         {renderGroup("Completed", grouped.COMPLETED)}
+        {renderGroup("Cancelled", grouped.CANCELLED)}
       </div>
     );
   })()
@@ -541,7 +913,11 @@ function CustomerRequestsInner({
               </div>
               <div>
                 <small>Service</small>
-                <strong>{activeRequest.serviceType || activeRequest.service || "--"}</strong>
+                <strong>
+                  {Array.isArray(activeRequest.serviceTypes) && activeRequest.serviceTypes.length > 0
+                    ? activeRequest.serviceTypes.join(", ")
+                    : activeRequest.serviceType || activeRequest.service || "--"}
+                </strong>
               </div>
                 <div>
                   <small>Payment</small>
@@ -610,13 +986,190 @@ function CustomerRequestsInner({
                 )}
               </div>
             )}
+            {activeRequest?.staffArrived && (
+              <div className="track-modal__notes">
+                <small>Arrival</small>
+                <p>
+                  {activeRequest.customerArrivalConfirmed
+                    ? "Staff arrival confirmed."
+                    : "Staff has marked arrival. Please confirm."}
+                </p>
+              </div>
+            )}
             <div className="customer-modal__actions">
+              {canRequestRefund(activeRequest) && (
+                <button
+                  type="button"
+                  className="btn pill ghost"
+                  onClick={() => openRefundModal(activeRequest)}
+                >
+                  Request refund
+                </button>
+              )}
+              {activeRequest?.staffArrived && !activeRequest?.customerArrivalConfirmed && (
+                <button
+                  type="button"
+                  className="btn pill ghost"
+                  onClick={() => openArrivalModal(activeRequest)}
+                >
+                  Confirm staff arrival
+                </button>
+              )}
+              {canCancelRequest(activeRequest) && (
+                <button
+                  type="button"
+                  className="btn pill ghost"
+                  onClick={() => openCancelModal(activeRequest)}
+                >
+                  Cancel request
+                </button>
+              )}
               <button
                 type="button"
                 className="btn pill primary"
                 onClick={() => setShowTrackModal(false)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRefundModal && refundTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowRefundModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Request refund">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-rotate-left"></i>
+            </div>
+            <h4>Request a refund</h4>
+            <p className="muted small">Tell us why you are requesting a refund.</p>
+            <label className="feedback-label">
+              Reason
+              <textarea
+                rows={4}
+                value={refundReason}
+                onChange={(e) => {
+                  setRefundReason(e.target.value);
+                  if (refundError) setRefundError("");
+                }}
+              
+              />
+            </label>
+            {refundError && <div className="feedback-error">{refundError}</div>}
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setShowRefundModal(false)}
+                disabled={refundSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleSubmitRefund}
+                disabled={refundSubmitting}
+              >
+                {refundSubmitting ? "Submitting..." : "Submit refund request"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCancelModal && cancelTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowCancelModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Cancel request">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-ban"></i>
+            </div>
+            <h4>Cancel this request?</h4>
+            <p className="muted small">
+              You can cancel while the request isn't completed. This action cannot be undone.
+            </p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelSubmitting}
+              >
+                Keep request
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleConfirmCancel}
+                disabled={cancelSubmitting}
+              >
+                {cancelSubmitting ? "Cancelling..." : "Yes, cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showArrivalModal && arrivalTarget && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowArrivalModal(false)} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Confirm staff arrival">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-user-check"></i>
+            </div>
+            <h4>Confirm staff arrival</h4>
+            <p className="muted small">
+              Please confirm the staff has arrived at your location before payment or service begins.
+            </p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={async () => {
+                  if (!arrivalTarget?.id && !arrivalTarget?.requestId) {
+                    setShowArrivalModal(false);
+                    setArrivalTarget(null);
+                    return;
+                  }
+                  try {
+                    setArrivalSubmitting(true);
+                    const requestId = String(arrivalTarget.requestId || arrivalTarget.id || "").trim();
+                    if (requestId) {
+                      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+                        staffArrived: false,
+                        staffArrivedAt: "",
+                        staffArrivedById: "",
+                        staffArrivedByName: "",
+                        customerArrivalConfirmed: false,
+                        customerArrivalDeclinedAt: rtdbServerTimestamp(),
+                        updatedAt: rtdbServerTimestamp()
+                      });
+                    }
+                  } finally {
+                    setArrivalSubmitting(false);
+                    setShowArrivalModal(false);
+                    setArrivalTarget(null);
+                    if (queuedTrackRequest) {
+                      setActiveRequest(queuedTrackRequest);
+                      setShowTrackModal(true);
+                      setQueuedTrackRequest(null);
+                    }
+                  }
+                }}
+                disabled={arrivalSubmitting}
+              >
+                Not yet
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={handleConfirmArrival}
+                disabled={arrivalSubmitting}
+              >
+                {arrivalSubmitting ? "Confirming..." : "Yes, staff arrived"}
               </button>
             </div>
           </div>
@@ -682,6 +1235,3 @@ function CustomerRequestsInner({
     </>
   );
 }
-
-
-

@@ -52,11 +52,18 @@ function Login() {
 
       try {
         const statusSnap = await get(ref(rtdb, `Users/${user.uid}/status`));
-        if (statusSnap.exists() && String(statusSnap.val()).toLowerCase() === "disabled") {
-          await signOut(auth);
-          setIsLoading(false);
-          setError("This account has been disabled by an administrator.");
-          return;
+        if (statusSnap.exists()) {
+          const statusValue = String(statusSnap.val()).toLowerCase();
+          if (statusValue === "disabled" || statusValue === "archived") {
+            await signOut(auth);
+            setIsLoading(false);
+            setError(
+              statusValue === "archived"
+                ? "This account has been archived by an administrator."
+                : "This account has been disabled by an administrator."
+            );
+            return;
+          }
         }
       } catch (statusErr) {
         console.warn("Status check skipped", statusErr?.code);

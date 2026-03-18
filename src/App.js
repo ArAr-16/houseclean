@@ -138,7 +138,7 @@ function AppContent() {
         <>
           <div className="main-content">
             <main>
-              <Routes>
+              <Routes location={location} key={location.key}>
                 <Route path="/" element={<Home />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/services" element={<Services />} />

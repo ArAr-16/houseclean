@@ -45,6 +45,7 @@ function Staff({ visibleSections }) {
   const [paymentMethodByRequestId, setPaymentMethodByRequestId] = useState({});
   const [attendanceEntries, setAttendanceEntries] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
+  const [customerAvatarSeeds, setCustomerAvatarSeeds] = useState({});
   const [staffProfileForm, setStaffProfileForm] = useState(null);
   const [staffProfileErrors, setStaffProfileErrors] = useState({});
   const [staffProfileSaving, setStaffProfileSaving] = useState(false);
@@ -128,9 +129,6 @@ function Staff({ visibleSections }) {
   const myRole = String(profile?.role || "").toLowerCase();
   const isStaffManager = myRole === "staff";
   const isHousekeeper = myRole === "housekeeper";
-  const availabilityRaw = String(profile?.availability || "").toLowerCase();
-  const availability = availabilityRaw || (status === "active" ? "available" : "away");
-  const attendanceOpenId = String(profile?.attendanceOpenId || "").trim();
   const createAvatarDataUri = (presetId) => {
     const base = "data:image/svg+xml;charset=utf-8,";
     const preset = String(presetId || "mop");
@@ -152,16 +150,6 @@ function Staff({ visibleSections }) {
 
   const avatarUrl = createAvatarDataUri(profile?.avatarSeed || "housekeeper");
   const showGuest = !profile && !profileLoading;
-  const clockedInRaw = profile?.clockedIn ?? profile?.clockIn ?? profile?.isClockedIn ?? profile?.clocked_in ?? null;
-  const clockedInFlag =
-    clockedInRaw === true || clockedInRaw === "true" || clockedInRaw === 1 || clockedInRaw === "1";
-  const timeIn = profile?.timeIn ?? profile?.time_in ?? profile?.clockInAt ?? null;
-  const timeOut = profile?.timeOut ?? profile?.time_out ?? profile?.clockOutAt ?? null;
-  const hasTimeIn = timeIn != null && String(timeIn).trim() !== "";
-  const hasTimeOut = timeOut != null && String(timeOut).trim() !== "";
-  const isClockedIn = clockedInFlag || (hasTimeIn && !hasTimeOut);
-  const availabilityLabel = isClockedIn ? "Clocked in" : "Clocked out";
-
   const formatAvailabilityLabel = (days, start, end) => {
     if (!Array.isArray(days) || days.length === 0 || !start || !end) return "";
     const to12Hour = (timeValue) => {
@@ -337,63 +325,6 @@ function Staff({ visibleSections }) {
     setStaffProfileErrors({});
   };
 
-  const toggleClockIn = async () => {
-    if (showGuest || !isStaffRole) return;
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    const userRef = rtdbRef(rtdb, `Users/${uid}`);
-    if (isClockedIn) {
-      const openId =
-        attendanceOpenId ||
-        (attendanceEntries || []).find((e) => e && e.timeIn && !e.timeOut)?.id ||
-        "";
-      if (openId) {
-        await rtdbUpdate(rtdbRef(rtdb, `Attendance/${uid}/entries/${openId}`), {
-          timeOut: rtdbServerTimestamp()
-        });
-      }
-      await rtdbUpdate(userRef, {
-        clockedIn: false,
-        timeOut: rtdbServerTimestamp(),
-        attendanceOpenId: null
-      });
-    } else {
-      const now = new Date();
-      const dateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-        now.getDate()
-      ).padStart(2, "0")}`;
-      const entryRef = push(rtdbRef(rtdb, `Attendance/${uid}/entries`));
-      await rtdbSet(entryRef, {
-        timeIn: rtdbServerTimestamp(),
-        dateKey
-      });
-      await rtdbUpdate(userRef, {
-        clockedIn: true,
-        timeIn: rtdbServerTimestamp(),
-        timeOut: null,
-        attendanceOpenId: entryRef.key || null
-      });
-    }
-  };
-
-  const handleClockIn = async () => {
-    if (isClockedIn) return;
-    await toggleClockIn();
-  };
-
-  const handleClockOut = async () => {
-    if (!isClockedIn) return;
-    await toggleClockIn();
-  };
-
-  const toggleAvailability = async () => {
-    if (showGuest || !isStaffRole) return;
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    const userRef = rtdbRef(rtdb, `Users/${uid}`);
-    const next = availability === "available" ? "away" : "available";
-    await rtdbUpdate(userRef, { availability: next });
-  };
 
   const sendNotification = async ({ toUserId, title, body, requestId }) => {
     if (!toUserId) return;
@@ -487,32 +418,22 @@ function Staff({ visibleSections }) {
     return () => stop();
   }, [profile?.id]);
 
-  useEffect(() => {
-    const uid = auth.currentUser?.uid || profile?.id || "";
-    if (!uid) {
-      setAttendanceEntries([]);
-      setAttendanceLoading(false);
-      return;
-    }
-
-    setAttendanceLoading(true);
-    const entriesRef = rtdbRef(rtdb, `Attendance/${uid}/entries`);
-    const stop = onValue(
-      entriesRef,
-      (snap) => {
-        const val = snap.val() || {};
-        const list = Object.entries(val).map(([id, data]) => ({ id, ...(data || {}) }));
-        list.sort((a, b) => (Number(b.timeIn || 0) || 0) - (Number(a.timeIn || 0) || 0));
-        setAttendanceEntries(list);
-        setAttendanceLoading(false);
-      },
-      () => setAttendanceLoading(false)
-    );
-
-    return () => stop();
-  }, [profile?.id]);
- 
   const tasks = useMemo(() => { 
+    const formatScheduleLabel = (req) => {
+      const startDate = req?.startDate || "";
+      const combined = `${req?.date || ""} ${req?.time || ""}`.trim();
+      const raw = String(startDate || combined || "").trim();
+      if (!raw) return "Scheduled";
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return raw;
+      const dateLabel = parsed.toLocaleDateString([], {
+        month: "short",
+        day: "2-digit",
+        year: "numeric"
+      });
+      const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    };
     return (requests || []) 
       .filter((r) => {
         const status = String(r.status || "").toLowerCase();
@@ -523,12 +444,27 @@ function Staff({ visibleSections }) {
       .map((r) => ({ 
         id: r.id, 
         title: `${r.serviceType || r.service || "Service"} - ${r.location || "Location"}`, 
-        time: r.startDate || r.preferredTime || "Scheduled", 
+        time: formatScheduleLabel(r), 
         status: String(r.status || "scheduled").toLowerCase() 
       })); 
   }, [requests]); 
 
   const completedTasks = useMemo(() => {
+    const formatScheduleLabel = (req) => {
+      const startDate = req?.startDate || "";
+      const combined = `${req?.date || ""} ${req?.time || ""}`.trim();
+      const raw = String(startDate || combined || "").trim();
+      if (!raw) return "Completed";
+      const parsed = new Date(raw);
+      if (Number.isNaN(parsed.getTime())) return raw;
+      const dateLabel = parsed.toLocaleDateString([], {
+        month: "short",
+        day: "2-digit",
+        year: "numeric"
+      });
+      const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    };
     return (requests || [])
       .filter((r) => {
         const status = String(r.status || "").toLowerCase();
@@ -537,7 +473,7 @@ function Staff({ visibleSections }) {
       .map((r) => ({
         id: r.id,
         title: `${r.serviceType || r.service || "Service"} - ${r.location || "Location"}`,
-        time: r.startDate || r.preferredTime || "Completed",
+        time: formatScheduleLabel(r),
         status: "completed"
       }));
   }, [requests]);
@@ -552,13 +488,7 @@ function Staff({ visibleSections }) {
   }).length;
   const ratingAverage = Number(profile?.ratingAverage ?? profile?.rating ?? 4.5);
   const ratingDisplay = Number.isFinite(ratingAverage) ? ratingAverage.toFixed(1) : "4.5";
-  const latestFeedback = String(profile?.latestReview || "Great service!").trim();
 
-  const history = [
-    { id: "H-441", job: "Housecleaning - Lucao", date: "Mar 05", hours: "3.0", payout: "PHP 950", status: "paid" },
-    { id: "H-442", job: "Deep clean - Calasiao", date: "Mar 04", hours: "4.5", payout: "PHP 1,750", status: "pending" },
-    { id: "H-443", job: "Laundry - Downtown", date: "Mar 03", hours: "2.0", payout: "PHP 600", status: "paid" },
-  ];
 
   const handleRequestAction = async (req, statusValue) => { 
     const id = req?.id;
@@ -674,10 +604,12 @@ function Staff({ visibleSections }) {
     if (!id) return;
     const status = String(req?.status || "").toUpperCase();
     const method = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
-    if (status !== "RESERVED" || method !== "CASH_ON_HAND") return;
+    const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+    const cashReserved = method === "CASH_ON_HAND" && paymentStatus === "RESERVED";
+    if (!cashReserved || status !== "ACCEPTED") return;
+    if (!req?.staffArrived) return;
 
     await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
-      status: "CONFIRMED",
       paymentStatus: "PAID",
       paidVia: "CASH_ON_HAND",
       paidAt: rtdbServerTimestamp(),
@@ -695,6 +627,31 @@ function Staff({ visibleSections }) {
       title: "Payment received",
       body: `${serviceLabel} payment was received. Your booking is confirmed.`
     });
+  };
+
+  const handleStaffArrived = async (req) => {
+    const id = req?.id;
+    if (!id) return;
+    const status = String(req?.status || "").toUpperCase();
+    if (status !== "ACCEPTED") return;
+    if (req?.staffArrived) return;
+    await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+      staffArrived: true,
+      staffArrivedAt: rtdbServerTimestamp(),
+      staffArrivedById: profile?.id || auth.currentUser?.uid || "",
+      staffArrivedByName: displayName,
+      updatedAt: rtdbServerTimestamp()
+    });
+
+    const customerId = String(req?.householderId || "").trim();
+    if (customerId) {
+      await sendNotification({
+        toUserId: customerId,
+        requestId: id,
+        title: "Staff arrived",
+        body: "Please confirm staff arrival to continue the service."
+      });
+    }
   };
 
   const formatWhenShort = (value) => {
@@ -744,10 +701,39 @@ function Staff({ visibleSections }) {
 
   const currentUserId = auth.currentUser?.uid || "";
   const handleGoToRequests = () => navigate("/staff/requests");
-  const handleGoToHistory = () => navigate("/staff/history");
   const handleGoToSettings = () => {
     document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" });
   };
+
+  const customerIds = useMemo(() => {
+    const ids = new Set();
+    (requests || []).forEach((req) => {
+      const id = String(req?.householderId || req?.customerId || "").trim();
+      if (id) ids.add(id);
+    });
+    return Array.from(ids);
+  }, [requests]);
+
+  useEffect(() => {
+    if (!customerIds.length) {
+      setCustomerAvatarSeeds({});
+      return;
+    }
+    const usersRef = rtdbRef(rtdb, "Users");
+    const stop = onValue(
+      usersRef,
+      (snap) => {
+        const val = snap.val() || {};
+        const next = {};
+        customerIds.forEach((id) => {
+          if (val[id]?.avatarSeed) next[id] = String(val[id].avatarSeed);
+        });
+        setCustomerAvatarSeeds(next);
+      },
+      () => setCustomerAvatarSeeds({})
+    );
+    return () => stop();
+  }, [customerIds.join("|")]);
 
   return (
     <div className="staff-shell neo">
@@ -779,18 +765,12 @@ function Staff({ visibleSections }) {
         <StaffMain
           showGuest={showGuest}
           isStaffRole={isStaffRole}
-          availability={availability}
-          availabilityLabel={availabilityLabel}
-          toggleAvailability={toggleAvailability}
           assignedTodayCount={assignedTodayCount}
           nextJobLabel={nextJobLabel}
           pendingPaymentsCount={pendingPaymentsCount}
           notificationsLoading={notificationsLoading}
           notifications={notifications}
-          handleClockIn={handleClockIn}
-          handleClockOut={handleClockOut}
           ratingDisplay={ratingDisplay}
-          latestFeedback={latestFeedback}
           tasks={tasks}
           completedTasks={completedTasks}
           requests={requests}
@@ -801,21 +781,16 @@ function Staff({ visibleSections }) {
           currentUserId={currentUserId}
           paymentMethodByRequestId={paymentMethodByRequestId}
           setPaymentMethodByRequestId={setPaymentMethodByRequestId}
+          customerAvatarSeeds={customerAvatarSeeds}
           handleRequestAction={handleRequestAction}
           handleComplete={handleComplete}
           handleCashPaymentReceived={handleCashPaymentReceived}
-          history={history}
-          attendanceEntries={attendanceEntries}
-          attendanceLoading={attendanceLoading}
+          handleStaffArrived={handleStaffArrived}
           markAllRead={markAllRead}
           formatWhenShort={formatWhenShort}
           visibleSections={visibleSections}
           onGoToRequests={handleGoToRequests}
-          onGoToHistory={handleGoToHistory}
           onGoToSettings={handleGoToSettings}
-          isClockedIn={isClockedIn}
-          timeIn={timeIn}
-          timeOut={timeOut}
           staffServiceOptions={STAFF_SERVICE_OPTIONS}
           weekdayOptions={WEEKDAY_OPTIONS}
           staffProfileForm={staffProfileForm}

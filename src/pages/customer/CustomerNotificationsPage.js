@@ -1,7 +1,15 @@
 import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { useCustomerNotifications, useCustomerServiceRequests } from "./customerData";
+import { rtdb } from "../../firebase";
+import {
+  push,
+  ref as rtdbRef,
+  runTransaction,
+  serverTimestamp as rtdbServerTimestamp,
+  set as rtdbSet,
+  update as rtdbUpdate
+} from "firebase/database";
 
 function formatWhen(value) {
   if (value == null) return "";
@@ -34,9 +42,14 @@ export default CustomerNotificationsPage;
 
 function CustomerNotificationsInner({ filter, setFilter }) {
   const ctx = useCustomerChrome();
-  const navigate = useNavigate();
   const { notifications, loading } = useCustomerNotifications(ctx.authUser?.uid, { limit: 80 });
   const { requests } = useCustomerServiceRequests(ctx.authUser?.uid);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRequest, setFeedbackRequest] = useState(null);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
 
   const derivedAlerts = useMemo(() => {
     const list = [];
@@ -130,6 +143,100 @@ function CustomerNotificationsInner({ filter, setFilter }) {
     return combined.filter((n) => String(n.type || "general") === filter);
   }, [combined, filter]);
 
+  const openFeedbackModal = (req) => {
+    if (!req) return;
+    setFeedbackRequest(req);
+    setFeedbackRating(Number(req.feedbackRating || 0));
+    setFeedbackComment(String(req.feedbackComment || ""));
+    setFeedbackError("");
+    setShowFeedbackModal(true);
+  };
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false);
+    setFeedbackRequest(null);
+    setFeedbackError("");
+  };
+
+  const sendNotification = async ({ toUserId, title, body, requestId }) => {
+    if (!toUserId) return;
+    const listRef = rtdbRef(rtdb, `UserNotifications/${String(toUserId)}`);
+    const notifRef = push(listRef);
+    await rtdbSet(notifRef, {
+      title: String(title || "Update"),
+      body: String(body || ""),
+      requestId: String(requestId || ""),
+      createdAt: rtdbServerTimestamp(),
+      read: false,
+      source: "web"
+    });
+  };
+
+  const updateStaffRating = async (staffId, rating, comment) => {
+    if (!staffId || !rating) return;
+    const staffRef = rtdbRef(rtdb, `Users/${staffId}`);
+    await runTransaction(staffRef, (current) => {
+      const data = current || {};
+      const count = Number(data.ratingCount || 0) || 0;
+      const sum = Number(data.ratingSum || 0) || 0;
+      const nextCount = count + 1;
+      const nextSum = sum + Number(rating || 0);
+      const avg = nextSum / nextCount;
+      return {
+        ...data,
+        ratingCount: nextCount,
+        ratingSum: nextSum,
+        ratingAverage: Number(avg.toFixed(2)),
+        rating: Number(avg.toFixed(1)),
+        latestReview: comment || data.latestReview || "",
+        latestReviewAt: Date.now()
+      };
+    });
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackRequest) return;
+    const id = feedbackRequest.id || feedbackRequest.requestId;
+    if (!id) return;
+    if (feedbackRequest.feedbackPending === false) {
+      setFeedbackError("Feedback has already been submitted for this request.");
+      return;
+    }
+    if (!feedbackRating || feedbackRating < 1) {
+      setFeedbackError("Please select a rating before submitting.");
+      return;
+    }
+    try {
+      setFeedbackSaving(true);
+      const payload = {
+        feedbackRating: Number(feedbackRating),
+        feedbackComment: String(feedbackComment || "").trim(),
+        feedbackById: String(ctx.authUser?.uid || ""),
+        feedbackByName: String(
+          ctx.displayName || ctx.profile?.fullName || ctx.profile?.name || ""
+        ),
+        feedbackAt: rtdbServerTimestamp(),
+        feedbackPending: false,
+        updatedAt: rtdbServerTimestamp()
+      };
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), payload);
+
+      const staffId = String(feedbackRequest.housekeeperId || "").trim();
+      await updateStaffRating(staffId, feedbackRating, payload.feedbackComment);
+      if (staffId) {
+        await sendNotification({
+          toUserId: staffId,
+          requestId: id,
+          title: "Customer feedback received",
+          body: "A customer left feedback on a completed request."
+        });
+      }
+      closeFeedbackModal();
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
   return (
     <>
       <section className="panel card">
@@ -176,11 +283,14 @@ function CustomerNotificationsInner({ filter, setFilter }) {
                       <button
                         className="btn pill small primary"
                         type="button"
-                        onClick={() =>
-                          navigate("/customer/requests", {
-                            state: { openFeedbackFor: n.requestId || n.requestID || n.request_id }
-                          })
-                        }
+                        onClick={() => {
+                          const requestId = String(n.requestId || n.requestID || n.request_id || "").trim();
+                          if (!requestId) return;
+                          const match =
+                            requests.find((r) => String(r.id || "") === requestId) ||
+                            requests.find((r) => String(r.requestId || "") === requestId);
+                          if (match) openFeedbackModal(match);
+                        }}
                       >
                         Rate now
                       </button>
@@ -192,6 +302,63 @@ function CustomerNotificationsInner({ filter, setFilter }) {
           </div>
         )}
       </section>
+
+      {showFeedbackModal && feedbackRequest && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={closeFeedbackModal} />
+          <div className="customer-modal__panel feedback-modal" role="dialog" aria-modal="true">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-star"></i>
+            </div>
+            <h4>Leave feedback</h4>
+            <p>Rate your staff and add a short note about the service.</p>
+            <div className="feedback-form">
+              <div className="star-picker">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`star-btn ${feedbackRating >= value ? "on" : ""}`}
+                    onClick={() => {
+                      setFeedbackRating(value);
+                      if (feedbackError) setFeedbackError("");
+                    }}
+                    aria-label={`Rate ${value} star${value > 1 ? "s" : ""}`}
+                  >
+                    <i className="fas fa-star"></i>
+                  </button>
+                ))}
+                <span className="star-label">
+                  {feedbackRating ? `${feedbackRating}.0 / 5` : "Tap to rate"}
+                </span>
+              </div>
+              <label className="feedback-label">
+                Notes (optional)
+                <textarea
+                  rows={3}
+                  value={feedbackComment}
+                  onChange={(e) => setFeedbackComment(e.target.value)}
+                  placeholder="Share what went well or what could improve..."
+                />
+              </label>
+              {feedbackError && <div className="feedback-error">{feedbackError}</div>}
+            </div>
+            <div className="customer-modal__actions">
+              <button className="btn pill ghost" type="button" onClick={closeFeedbackModal}>
+                Cancel
+              </button>
+              <button
+                className="btn pill primary"
+                type="button"
+                onClick={handleSubmitFeedback}
+                disabled={feedbackSaving}
+              >
+                {feedbackSaving ? "Submitting..." : "Submit feedback"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

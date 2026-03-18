@@ -13,6 +13,8 @@ function CustomerMain({
   promoCode,
   promoCredits,
   onOpenPaymentModal,
+  onOpenRefundModal,
+  canRequestRefund,
   staffDirectory = [],
   staffDirectoryLoading = false
 }) {
@@ -84,6 +86,31 @@ function CustomerMain({
     return code ? `${base}/register?ref=${encodeURIComponent(code)}` : base;
   })();
   const shareText = "Get a cleaning credit when you book with my code.";
+  const totalRequests = Array.isArray(history) ? history.length : 0;
+  const statusCounts = (history || []).reduce(
+    (acc, item) => {
+      const status = String(item?.status || "").toUpperCase();
+      if (status === "COMPLETED") acc.completed += 1;
+      else if (status === "ACCEPTED" || status === "CONFIRMED" || status === "RESERVED") acc.active += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { completed: 0, active: 0, pending: 0 }
+  );
+  const totalSpent = (history || []).reduce((sum, item) => {
+    const value = String(item?.payout || "").replace(/[^\d.]/g, "");
+    const num = Number(value);
+    return sum + (Number.isFinite(num) ? num : 0);
+  }, 0);
+  const avgRating = (() => {
+    const ratings = (history || [])
+      .map((item) => Number(item?.feedbackRating || 0))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!ratings.length) return 0;
+    const sum = ratings.reduce((a, b) => a + b, 0);
+    return sum / ratings.length;
+  })();
+  const maxStatus = Math.max(1, statusCounts.completed, statusCounts.active, statusCounts.pending);
 
   const handleCopyLink = async () => {
     const text = String(shareUrl || "").trim();
@@ -226,10 +253,15 @@ function CustomerMain({
               <button
                 className="btn pill primary"
                 type="button"
-                onClick={() => onOpenPaymentModal?.(latestRequest)}
+                onClick={() => {
+                  if (typeof onOpenPaymentModal === "function") {
+                    onOpenPaymentModal(latestRequest);
+                  }
+                }}
               >
                 {paymentInfo.action}
               </button>
+
             </div>
           ) : (
             <div className="muted small">No payments yet. Book a service to get started.</div>
@@ -279,53 +311,74 @@ function CustomerMain({
 
       
 
-      <section className="panel card history" id="history">
+      <section className="panel card stats-card" id="statistics">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">History</p>
-            <h3>Service timeline</h3>
+            <p className="eyebrow">Statistics</p>
+            <h3>Cleaning overview</h3>
           </div>
-          <Link className="btn pill ghost" to={`${basePath}/requests`}>
-            View all
+          <Link className="btn pill ghost" to={`${basePath}/history`}>
+            Open history
           </Link>
         </div>
         {myRequestsLoading ? (
-          <div className="history-empty muted small">Loading your requests...</div>
-        ) : history.length === 0 ? (
+          <div className="history-empty muted small">Loading statistics...</div>
+        ) : totalRequests === 0 ? (
           <div className="history-empty muted small">
-            No requests yet. Submit one above to sync with staff.
+            No requests yet. Book a service to see your stats.
           </div>
         ) : (
-          <div className="history-list">
-            {history.slice(0, 8).map((h) => {
-              const feedbackLabel =
-                h.feedbackRating != null
-                  ? `Feedback: ${Number(h.feedbackRating).toFixed(1)} / 5`
-                  : h.status === "COMPLETED"
-                    ? "Feedback: pending"
-                    : "Feedback: --";
-              return (
-                <div key={h.id} className="history-row-lite">
-                  <div className="history-meta">
-                    <strong>{h.job}</strong>
-                    <span className="muted small">{h.date || "--"}</span>
-                    {Array.isArray(h.photos) && h.photos.length > 0 && (
-                      <span className="history-photos" aria-label="Request photos">
-                        {h.photos.slice(0, 3).map((u) => (
-                          <img key={u} src={u} alt="Request" loading="lazy" />
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                  <div className="history-badges">
-                    <span className={`chip ${h.status.toLowerCase()}`}>{h.status}</span>
-                    <span className="pill soft">{h.payout}</span>
-                    <span className="pill soft">{feedbackLabel}</span>
-                  </div>
+          <>
+            <div className="stats-grid">
+              <div className="stat-tile">
+                <span className="muted tiny">Total requests</span>
+                <strong>{totalRequests}</strong>
+              </div>
+              <div className="stat-tile">
+                <span className="muted tiny">Completed</span>
+                <strong>{statusCounts.completed}</strong>
+              </div>
+              <div className="stat-tile">
+                <span className="muted tiny">Active</span>
+                <strong>{statusCounts.active}</strong>
+              </div>
+              <div className="stat-tile">
+                <span className="muted tiny">Pending</span>
+                <strong>{statusCounts.pending}</strong>
+              </div>
+              <div className="stat-tile">
+                <span className="muted tiny">Total spent</span>
+                <strong>PHP {Math.round(totalSpent).toLocaleString()}</strong>
+              </div>
+              <div className="stat-tile">
+                <span className="muted tiny">Avg rating</span>
+                <strong>{avgRating ? avgRating.toFixed(1) : "—"}</strong>
+              </div>
+            </div>
+            <div className="stats-chart">
+              <div className="chart-row">
+                <span>Completed</span>
+                <div className="chart-bar">
+                  <span style={{ width: `${(statusCounts.completed / maxStatus) * 100}%` }} />
                 </div>
-              );
-            })}
-          </div>
+                <strong>{statusCounts.completed}</strong>
+              </div>
+              <div className="chart-row">
+                <span>Active</span>
+                <div className="chart-bar">
+                  <span className="alt" style={{ width: `${(statusCounts.active / maxStatus) * 100}%` }} />
+                </div>
+                <strong>{statusCounts.active}</strong>
+              </div>
+              <div className="chart-row">
+                <span>Pending</span>
+                <div className="chart-bar">
+                  <span className="warn" style={{ width: `${(statusCounts.pending / maxStatus) * 100}%` }} />
+                </div>
+                <strong>{statusCounts.pending}</strong>
+              </div>
+            </div>
+          </>
         )}
       </section>
 
@@ -514,4 +567,3 @@ function CustomerMain({
 }
 
 export default CustomerMain;
-

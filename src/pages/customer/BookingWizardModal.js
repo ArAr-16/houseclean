@@ -9,46 +9,67 @@ import {
 } from "firebase/database";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { rtdb, storage } from "../../firebase";
+import serviceHousecleaning from "../../assets/services/Housecleaning.png";
+import serviceKitchen from "../../assets/services/Kitchen.png";
+import serviceBathroom from "../../assets/services/Bathroom.png";
+import serviceBedroom from "../../assets/services/Bedroom.png";
+import serviceDeep from "../../assets/services/Deep.png";
+import serviceOutdoor from "../../assets/services/Outdoor.png";
+import serviceAppliance from "../../assets/services/Appliance.png";
 
 const DEFAULT_SERVICE_OPTIONS = [
   {
     name: "General Housecleaning",
+    imageKey: "mop",
+    imageUrl: serviceHousecleaning,
     minPrice: 500,
     maxPrice: 1500,
     note: "Covers sweeping, mopping, dusting, basic tidying. Usually 2–3 hours for small homes/condos."
   },
   {
     name: "Kitchen Cleaning",
+    imageKey: "spray",
+    imageUrl: serviceKitchen,
     minPrice: 800,
     maxPrice: 2000,
     note: "Includes grease removal, appliance wipe-down, sink scrubbing. Higher if deep cleaning ovens/fridges."
   },
   {
     name: "Bathroom Cleaning",
+    imageKey: "bucket",
+    imageUrl: serviceBathroom,
     minPrice: 700,
     maxPrice: 1500,
     note: "Focus on tiles, toilet, shower, mirrors. Mold removal may add cost."
   },
   {
     name: "Bedroom Cleaning",
+    imageKey: "broom",
+    imageUrl: serviceBedroom,
     minPrice: 500,
     maxPrice: 1200,
     note: "Dusting, vacuuming, bed changing. Price depends on number of rooms."
   },
   {
     name: "Deep Cleaning",
+    imageKey: "vacuum",
+    imageUrl: serviceDeep,
     minPrice: 2000,
     maxPrice: 5000,
     note: "Intensive cleaning of entire property, including hidden areas, appliances, and disinfecting."
   },
   {
     name: "Outdoor Cleaning",
+    imageKey: "sparkle_home",
+    imageUrl: serviceOutdoor,
     minPrice: 1000,
     maxPrice: 3000,
     note: "Garden sweeping, garage cleaning, exterior walls."
   },
   {
     name: "Appliance Cleaning",
+    imageKey: "gloves",
+    imageUrl: serviceAppliance,
     minPrice: 500,
     maxPrice: 1500,
     note: "Fridge, oven, aircon. Price depends on size and dirt level."
@@ -125,6 +146,8 @@ function BookingWizardModal({
   const [photoPreviews, setPhotoPreviews] = useState([]);
   const [photosInputKey, setPhotosInputKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [cashConfirmOpen, setCashConfirmOpen] = useState(false);
+  const [cashConfirmAgreed, setCashConfirmAgreed] = useState(false);
   const [error, setError] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
   const [minDateTime, setMinDateTime] = useState("");
@@ -153,9 +176,17 @@ function BookingWizardModal({
         const match = DEFAULT_SERVICE_OPTIONS.find(
           (entry) => entry.name.toLowerCase() === opt.toLowerCase()
         );
-        return match || { name: opt, minPrice: 0, maxPrice: 0, note: "" };
+        const fallback = match || { name: opt, minPrice: 0, maxPrice: 0, note: "", imageKey: "mop" };
+        return {
+          ...fallback,
+          imageUrl: createAvatarDataUri(fallback.imageKey || "mop")
+        };
       }
-      return opt;
+      const imageKey = opt.imageKey || "mop";
+      return {
+        ...opt,
+        imageUrl: opt.imageUrl || createAvatarDataUri(imageKey)
+      };
     });
   }, [serviceOptions]);
 
@@ -906,34 +937,44 @@ function BookingWizardModal({
     setBookingStep(3);
   };
 
-  const handleSubmit = async () => {
+  const validateBooking = () => {
     if (!uid) {
       setError("Please sign in to submit a request.");
-      return;
+      return false;
     }
-    if (submitting) return;
     if (!Array.isArray(booking.serviceTypes) || booking.serviceTypes.length === 0) {
-      return setError("Please choose at least one service type.");
+      setError("Please choose at least one service type.");
+      return false;
     }
     if (booking.durationHours < 1 || booking.durationHours > 8) {
-      return setError("Cleaning hours must be between 1 and 8 hours.");
+      setError("Cleaning hours must be between 1 and 8 hours.");
+      return false;
     }
     if (!booking.paymentMethod) {
-      return setError("Please choose a payment method.");
+      setError("Please choose a payment method.");
+      return false;
     }
     if (minDateTime && booking.startAt < minDateTime) {
-      return setError("Please choose a schedule at least 3 hours from now.");
+      setError("Please choose a schedule at least 3 hours from now.");
+      return false;
     }
     if (maxDateTime && booking.startAt > maxDateTime) {
-      return setError("Please choose a schedule within the next 30 days.");
+      setError("Please choose a schedule within the next 30 days.");
+      return false;
     }
     if (!isWithinBusinessHours(booking.startAt, booking.durationHours)) {
-      return setError("You can start between 9:00 AM and 5:00 PM; services must finish by 6:00 PM.");
+      setError("You can start between 9:00 AM and 5:00 PM; services must finish by 6:00 PM.");
+      return false;
     }
     if (!booking.housekeeperId) {
-      return setError("Please choose a staff member or use Quick Book.");
+      setError("Please choose a staff member or use Quick Book.");
+      return false;
     }
+    return true;
+  };
 
+  const submitRequest = async () => {
+    if (!validateBooking()) return;
     setError("");
     try {
       setSubmitting(true);
@@ -944,7 +985,8 @@ function BookingWizardModal({
       const durationHours = Number(booking.durationHours) || 1;
       const primaryService = String(booking.serviceTypes[0] || "").trim();
       const paymentMethod = String(booking.paymentMethod || "").trim();
-      const initialStatus = paymentMethod ? "PENDING_PAYMENT" : "PENDING";
+      const isCash = paymentMethod.toUpperCase() === "CASH_ON_HAND";
+      const initialStatus = paymentMethod ? (isCash ? "RESERVED" : "PENDING_PAYMENT") : "PENDING";
 
       const payload = {
         requestId,
@@ -958,11 +1000,11 @@ function BookingWizardModal({
         durationHours,
         startDate: String(booking.startAt || "").trim(),
         paymentMethod,
-        paymentStatus: "PENDING",
+        paymentStatus: isCash ? "RESERVED" : "PENDING",
         paidVia: "",
         paidAt: "",
         paymentTransactionId: "",
-        cashOnHandConfirmed: false,
+        cashOnHandConfirmed: isCash,
         status: initialStatus,
         createdAt: rtdbServerTimestamp(),
         timestamp: rtdbServerTimestamp(),
@@ -987,7 +1029,7 @@ function BookingWizardModal({
       const staffId = String(booking.housekeeperId || "").trim();
       const serviceLabel = String(primaryService || "Service request").trim();
       const timeLabel = String(booking.startAt || "").trim();
-      if (staffId && initialStatus !== "PENDING_PAYMENT") {
+      if (staffId) {
         await sendNotification({
           toUserId: staffId,
           requestId,
@@ -1041,8 +1083,25 @@ function BookingWizardModal({
       setError(code || msg ? `Could not submit request: ${code || msg}` : "Could not submit request. Please try again.");
     } finally {
       setSubmitting(false);
+      setCashConfirmAgreed(false);
     }
   };
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    if (!validateBooking()) return;
+    const methodKey = String(booking.paymentMethod || "").trim().toUpperCase();
+    if (methodKey === "CASH_ON_HAND" && !cashConfirmAgreed) {
+      setCashConfirmOpen(true);
+      return;
+    }
+    await submitRequest();
+  };
+
+  useEffect(() => {
+    setCashConfirmAgreed(false);
+    setCashConfirmOpen(false);
+  }, [booking.paymentMethod]);
 
   if (!open) return null;
 
@@ -1131,29 +1190,37 @@ function BookingWizardModal({
                       setBookingFields({ serviceTypes: next });
                     }}
                   >
-                    <div className="service-card__title">{opt.name}</div>
-                    <div className="service-card__price">
-                      ₱{Number(opt.minPrice || 0).toLocaleString()} – ₱{Number(opt.maxPrice || 0).toLocaleString()}
+                    <div className="service-card__media">
+                      {opt.imageUrl ? (
+                        <img src={opt.imageUrl} alt={opt.name} />
+                      ) : (
+                        <span>{String(opt.name || "").slice(0, 1)}</span>
+                      )}
                     </div>
-                    {opt.note && <div className="service-card__note">{opt.note}</div>}
-                    {opt.note && (
-                  <button
-                    type="button"
-                    className="service-card__link"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveProfile({
-                        name: opt.name,
-                        note: opt.note,
-                        minPrice: opt.minPrice,
-                        maxPrice: opt.maxPrice,
-                        kind: "service"
-                      });
-                    }}
-                  >
-                    View details
-                  </button>
-                )}
+                    <div className="service-card__body">
+                      <div className="service-card__title">{opt.name}</div>
+                      <div className="service-card__price">
+                        ₱{Number(opt.minPrice || 0).toLocaleString()} – ₱{Number(opt.maxPrice || 0).toLocaleString()}
+                      </div>
+                      {opt.note && (
+                        <button
+                          type="button"
+                          className="service-card__link"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveProfile({
+                              name: opt.name,
+                              note: opt.note,
+                              minPrice: opt.minPrice,
+                              maxPrice: opt.maxPrice,
+                              kind: "service"
+                            });
+                          }}
+                        >
+                          View details
+                        </button>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -1175,8 +1242,8 @@ function BookingWizardModal({
                 <p className="mini-label">Payment method</p>
                 <div className="payment-options">
                   {[
-                    { key: "STATIC_QR", label: "Static QR" },
-                    { key: "CASH_ON_HAND", label: "Cash on Hand" }
+                    { key: "STATIC_QR", label: "Static QR", icon: "fas fa-qrcode" },
+                    { key: "CASH_ON_HAND", label: "Cash on Hand", icon: "fas fa-hand-holding-usd" }
                   ].map((method) => (
                     <button
                       key={method.key}
@@ -1184,6 +1251,7 @@ function BookingWizardModal({
                       className={`payment-option ${booking.paymentMethod === method.key ? "selected" : ""}`}
                       onClick={() => setBookingFields({ paymentMethod: method.key })}
                     >
+                      <i className={`payment-option__icon ${method.icon}`} aria-hidden="true"></i>
                       {method.label}
                     </button>
                   ))}
@@ -1566,6 +1634,46 @@ function BookingWizardModal({
 
         </div>
       </div>
+      {cashConfirmOpen && (
+        <div className="customer-modal">
+          <div
+            className="customer-modal__backdrop"
+            onClick={() => {
+              if (submitting) return;
+              setCashConfirmOpen(false);
+            }}
+          />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Confirm cash on hand">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-hand-holding-usd"></i>
+            </div>
+            <h4>Confirm Cash on Hand</h4>
+            <p>Confirm that you will pay in cash when the staff arrives.</p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setCashConfirmOpen(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={() => {
+                  setCashConfirmAgreed(true);
+                  setCashConfirmOpen(false);
+                  submitRequest();
+                }}
+                disabled={submitting}
+              >
+                Yes, confirm cash payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {activeProfile && (
         <div className="staff-profile-modal" role="dialog" aria-modal="true" aria-label="Staff profile">
           <div
