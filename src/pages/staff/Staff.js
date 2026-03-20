@@ -449,6 +449,33 @@ function Staff({ visibleSections }) {
       })); 
   }, [requests]); 
 
+  useEffect(() => {
+    if (!profile?.id) {
+      setAttendanceEntries([]);
+      setAttendanceLoading(false);
+      return;
+    }
+    setAttendanceLoading(true);
+    const myId = profile?.id || auth.currentUser?.uid || "";
+    const entries = (requests || [])
+      .filter((r) => {
+        if (!r?.staffArrivedAt) return false;
+        if (isHousekeeper) {
+          const assignedId = String(r.housekeeperId || "").trim();
+          return Boolean(myId) && assignedId === myId;
+        }
+        return true;
+      })
+      .map((r) => ({
+        id: r.id,
+        at: Number(r.staffArrivedAt) || 0,
+        service: r.serviceType || r.service || "Service"
+      }))
+      .sort((a, b) => (Number(b.at || 0) || 0) - (Number(a.at || 0) || 0));
+    setAttendanceEntries(entries);
+    setAttendanceLoading(false);
+  }, [requests, profile?.id, isHousekeeper]);
+
   const completedTasks = useMemo(() => {
     const formatScheduleLabel = (req) => {
       const startDate = req?.startDate || "";
@@ -782,6 +809,8 @@ function Staff({ visibleSections }) {
           paymentMethodByRequestId={paymentMethodByRequestId}
           setPaymentMethodByRequestId={setPaymentMethodByRequestId}
           customerAvatarSeeds={customerAvatarSeeds}
+          attendanceEntries={attendanceEntries}
+          attendanceLoading={attendanceLoading}
           handleRequestAction={handleRequestAction}
           handleComplete={handleComplete}
           handleCashPaymentReceived={handleCashPaymentReceived}

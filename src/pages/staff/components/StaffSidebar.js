@@ -24,7 +24,7 @@ function StaffSidebar() {
           <i className="fas fa-clipboard-list"></i> Requests
         </Link>
         <Link className={isActive("/staff/schedule") ? "active" : ""} to="/staff/schedule">
-          <i className="fas fa-calendar-alt"></i> Schedule
+          <i className="fas fa-calendar-alt"></i> Attendance
         </Link>
         <Link className={isActive("/staff/history") ? "active" : ""} to="/staff/history">
           <i className="fas fa-clock"></i> History

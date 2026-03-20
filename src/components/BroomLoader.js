@@ -9,8 +9,8 @@ function BroomLoader({ message = "Sweeping things up…", fullscreen = true }) {
       aria-live="polite"
     >
       <div className="broom-loader">
-        <div className="broom-head" />
         <div className="broom-handle" />
+        <div className="broom-head" />       
         <div className="sparkles">
           <span>✦</span>
           <span>✦</span>

@@ -1922,12 +1922,14 @@ html.dark-mode .input-icon .icon-btn.ghost {
   display: grid;
   place-items: center;
   padding: 16px;
+  pointer-events: auto;
 }
 
 .staff-profile-modal__backdrop {
   position: absolute;
   inset: 0;
   background: rgba(15, 23, 42, 0.55);
+  pointer-events: auto;
 }
 
 .staff-profile-modal__panel {
@@ -1941,6 +1943,7 @@ html.dark-mode .input-icon .icon-btn.ghost {
   padding: 16px;
   display: grid;
   gap: 12px;
+  pointer-events: auto;
 }
 
 .staff-profile-modal__header {

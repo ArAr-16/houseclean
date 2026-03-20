@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { rtdb } from "../../../firebase";
 import {
   onValue,
@@ -48,7 +48,9 @@ function StaffMain({
   handleStaffProfileReset,
   showProfilePrompt,
   profileToast,
-  onDismissProfileToast
+  onDismissProfileToast,
+  attendanceEntries = [],
+  attendanceLoading = false
 }) {
   const hasVisibilityConfig = visibleSections && Object.keys(visibleSections).length > 0;
   const isVisible = (key) => {
@@ -67,6 +69,14 @@ function StaffMain({
   const [historyTab, setHistoryTab] = React.useState("active");
   const [historyPage, setHistoryPage] = React.useState(1);
   const [archivedHistoryMap, setArchivedHistoryMap] = React.useState({});
+  const [requestTab, setRequestTab] = React.useState("request");
+  const [requestSearch, setRequestSearch] = React.useState("");
+  const [completedPage, setCompletedPage] = React.useState(1);
+  const [attendanceMonth, setAttendanceMonth] = React.useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  const [attendanceSelectedKey, setAttendanceSelectedKey] = React.useState("");
   const historyPageSize = 8;
   const [themeMode, setThemeMode] = React.useState(() => {
     if (typeof window === "undefined") return "light";
@@ -255,6 +265,23 @@ function StaffMain({
     if (key === "CASH_ON_HAND") return "Cash on Hand";
     return value ? String(value) : "--";
   };
+  const normalizeSearch = (value) => String(value || "").toLowerCase().trim();
+  const matchesSearch = (req, query) => {
+    if (!query) return true;
+    const haystack = [
+      req?.serviceType,
+      req?.service,
+      req?.householderName,
+      req?.customer,
+      req?.location,
+      req?.address,
+      req?.requestId,
+      req?.id
+    ]
+      .map((v) => normalizeSearch(v))
+      .join(" ");
+    return haystack.includes(query);
+  };
 
   React.useEffect(() => {
     const uid = String(currentUserId || "").trim();
@@ -314,11 +341,140 @@ function StaffMain({
     [staffHistory, archivedHistoryIds]
   );
 
+  const requestStats = React.useMemo(() => {
+    const counts = { pending: 0, accepted: 0, completed: 0 };
+    (requests || []).forEach((req) => {
+      const status = String(req?.status || "").toLowerCase();
+      if (status === "completed" || req?.completedAt) counts.completed += 1;
+      else if (status === "accepted") counts.accepted += 1;
+      else counts.pending += 1;
+    });
+    return counts;
+  }, [requests]);
+
+  const requestChartData = React.useMemo(
+    () => [
+      { label: "Pending", value: requestStats.pending },
+      { label: "Accepted", value: requestStats.accepted },
+      { label: "Completed", value: requestStats.completed }
+    ],
+    [requestStats]
+  );
+
+  const requestChartMax = React.useMemo(() => {
+    const max = Math.max(1, ...requestChartData.map((d) => d.value));
+    return max;
+  }, [requestChartData]);
+
+  const getStatusLower = (req) => String(req?.status || "PENDING").toLowerCase();
+  const getPaymentMethodKey = (req) => String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+  const getPaymentStatusKey = (req) => String(req?.paymentStatus || "").toUpperCase();
+  const isCashOnHand = (req) => getPaymentMethodKey(req) === "CASH_ON_HAND";
+  const isCashReserved = (req) => isCashOnHand(req) && getPaymentStatusKey(req) === "RESERVED";
+  const isPaid = (req) => getPaymentStatusKey(req) === "PAID" || Boolean(req?.paidAt);
+  const canSeeRequest = (req) => {
+    if (!isHousekeeper) return true;
+    const assignedId = String(req?.housekeeperId || "").trim();
+    return Boolean(currentUserId) && assignedId === currentUserId;
+  };
+
+  const incomingRequests = (requests || []).filter((req) => {
+    if (!canSeeRequest(req)) return false;
+    const statusLower = getStatusLower(req);
+    return ["pending", "confirmed", "reserved", "pending_payment"].includes(statusLower);
+  });
+
+  const attendanceRequests = (requests || []).filter((req) => {
+    if (!canSeeRequest(req)) return false;
+    const statusLower = getStatusLower(req);
+    if (statusLower !== "accepted") return false;
+    const staffArrived = Boolean(req?.staffArrived);
+    const customerConfirmed = Boolean(req?.customerArrivalConfirmed);
+    return !staffArrived || (staffArrived && !customerConfirmed);
+  });
+
+  const cashConfirmationRequests = (requests || []).filter((req) => {
+    if (!canSeeRequest(req)) return false;
+    const statusLower = getStatusLower(req);
+    if (statusLower !== "accepted") return false;
+    if (!req?.staffArrived) return false;
+    return isCashReserved(req);
+  });
+
+  const ongoingRequests = (requests || []).filter((req) => {
+    if (!canSeeRequest(req)) return false;
+    const statusLower = getStatusLower(req);
+    if (statusLower !== "accepted") return false;
+    if (!req?.customerArrivalConfirmed) return false;
+    if (isCashOnHand(req) && !isPaid(req)) return false;
+    return true;
+  });
+
   const historyVisible = historyTab === "archived" ? archivedHistoryList : activeHistoryList;
   const historyTotalPages = Math.max(1, Math.ceil(historyVisible.length / historyPageSize));
   const historyCurrentPage = Math.min(historyPage, historyTotalPages);
   const historyStart = (historyCurrentPage - 1) * historyPageSize;
   const historyPaged = historyVisible.slice(historyStart, historyStart + historyPageSize);
+
+  const attendanceCalendar = React.useMemo(() => {
+    const { year, month } = attendanceMonth;
+    const monthLabel = new Date(year, month, 1).toLocaleDateString([], {
+      month: "long",
+      year: "numeric"
+    });
+    const startDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const weekLabels = ["S", "M", "T", "W", "T", "F", "S"];
+    const toDateKey = (date) => {
+      const d = new Date(date);
+      if (Number.isNaN(d.getTime())) return "";
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const todayKey = toDateKey(new Date());
+    const attendanceKeys = new Set(
+      (attendanceEntries || [])
+        .filter((entry) => Number(entry?.at || 0) > 0)
+        .map((entry) => toDateKey(entry.at))
+    );
+    const calendarCells = [];
+    for (let i = 0; i < startDay; i += 1) {
+      calendarCells.push({ empty: true, key: `empty-${i}` });
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const key = toDateKey(new Date(year, month, day));
+      calendarCells.push({
+        day,
+        key,
+        hasAttendance: attendanceKeys.has(key),
+        isToday: key === todayKey
+      });
+    }
+    const attendanceList = (attendanceEntries || [])
+      .filter((entry) => Number(entry?.at || 0) > 0)
+      .slice(0, 8)
+      .map((entry) => {
+        const when = new Date(entry.at);
+        const dateLabel = when.toLocaleDateString([], { month: "short", day: "2-digit" });
+        const timeLabel = when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return {
+          id: entry.id,
+          date: dateLabel,
+          dateKey: toDateKey(entry.at),
+          time: timeLabel,
+          service: entry.service || "Service"
+        };
+      });
+    return { monthLabel, weekLabels, calendarCells, attendanceList, todayKey };
+  }, [attendanceEntries, attendanceMonth]);
+
+  const completedPageSize = 10;
+  const completedTotalPages = Math.max(1, Math.ceil(activeHistoryList.length / completedPageSize));
+  const completedCurrentPage = Math.min(completedPage, completedTotalPages);
+  const completedStart = (completedCurrentPage - 1) * completedPageSize;
+  const completedPaged = activeHistoryList.slice(completedStart, completedStart + completedPageSize);
 
   const archiveHistoryItem = async (item) => {
     const uid = String(currentUserId || "").trim();
@@ -380,22 +536,6 @@ function StaffMain({
     setShowCashConfirm(false);
     setCashConfirmTarget(null);
   };
-
-  const reservedCashRequests = (requests || []).filter((r) => {
-    const statusLower = String(r.status || "").toLowerCase();
-    const method = String(r.paymentMethod || r.paidVia || "").toUpperCase();
-    const paymentStatus = String(r.paymentStatus || "").toUpperCase();
-    const cashReserved =
-      method === "CASH_ON_HAND" && (paymentStatus === "RESERVED" || statusLower === "reserved");
-    if (!cashReserved) return false;
-    if (statusLower !== "accepted") return false;
-    if (!r.staffArrived || !r.customerArrivalConfirmed) return false;
-    if (isHousekeeper) {
-      const assignedId = String(r.housekeeperId || "").trim();
-      return Boolean(currentUserId) && assignedId === currentUserId;
-    }
-    return true;
-  });
 
   return (
     <main className="staff-main">
@@ -636,7 +776,7 @@ function StaffMain({
 
           <div className="dashboard-grid">
             <div className="dash-stat">
-              <span className="muted small">Assigned today</span>
+              <span className="muted small">Assigned tasks</span>
               <strong>{assignedTodayCount}</strong>
             </div>
             <div className="dash-stat">
@@ -653,6 +793,31 @@ function StaffMain({
             </div>
           </div>
 
+          <div className="dashboard-chart">
+            <div className="dashboard-chart__header">
+              <div>
+                <p className="eyebrow">Overview</p>
+                <h4>Request pipeline</h4>
+              </div>
+            </div>
+            <div className="dashboard-chart__body">
+              {requestChartData.map((item) => (
+                <div className="chart-row" key={item.label}>
+                  <div className="chart-row__meta">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                  <div className="chart-row__track" aria-hidden="true">
+                    <div
+                      className="chart-row__fill"
+                      style={{ width: `${Math.round((item.value / requestChartMax) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="dashboard-actions">
             <button
               className="btn primary"
@@ -664,13 +829,6 @@ function StaffMain({
             >
               View requests
             </button>
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={() => document.getElementById("payment-confirmations")?.scrollIntoView({ behavior: "smooth" })}
-            >
-              Cash confirmations
-            </button>
           </div>
         </section>
       )}
@@ -680,325 +838,424 @@ function StaffMain({
           <div className="panel-header">
             <div>
               <p className="eyebrow">Requests</p>
-              <h4>Accept / Decline</h4>
             </div>
           </div>
           <div className="board-items">
             {requestsLoading ? (
               <div className="empty-state">Loading requests...</div>
-            ) : requests.length === 0 ? (
-              <div className="empty-state">
-                No requests yet. Customer submissions from /customer land here in real time.
-              </div>
             ) : (
-              requests
-                .filter((r) => {
-                  const paymentStatus = String(r.paymentStatus || "").toUpperCase();
-                  const hasPaid = paymentStatus === "PAID" || Boolean(r.paidAt);
-                  if (isHousekeeper) {
-                    const assignedId = String(r.housekeeperId || "").trim();
-                    const statusLower = String(r.status || "PENDING").toLowerCase();
-                    const isVisibleRow = ["pending", "confirmed", "reserved"].includes(statusLower);
-                    if (!isVisibleRow) return false;
-                    return Boolean(currentUserId) && assignedId === currentUserId;
-                  }
-                  const statusLower = String(r.status || "PENDING").toLowerCase();
-                  return ["pending", "confirmed", "reserved", "pending_payment"].includes(statusLower);
-                })
-                .map((r) => {
-                  const statusClass = String(r.status || "PENDING").toLowerCase();
-                  const isPending = statusClass === "pending";
-                  const isConfirmed = statusClass === "confirmed";
-                  const isReserved = statusClass === "reserved";
-                  const paymentStatus = String(r.paymentStatus || "").toUpperCase();
-                  const paymentMethod = String(r.paymentMethod || r.paidVia || "").toUpperCase();
-                  const awaitingOnSitePayment =
-                    statusClass === "accepted" && paymentMethod === "CASH_ON_HAND" && paymentStatus === "RESERVED";
-                  const staffArrived = Boolean(r.staffArrived);
-                  const customerName = r.householderName || r.customer || "Customer";
-                  const customerAvatar = getCustomerAvatar(r);
-                  const serviceLabel = r.serviceType || r.service || "Service request";
-                  const timeLabel = formatSchedule(r);
-                  const assignedId = String(r.housekeeperId || "").trim();
-                  const assignedName = String(r.housekeeperName || "").trim();
-                  const assignedRole = String(r.housekeeperRole || "").trim();
-                  const canActOnThis = !assignedId || (Boolean(currentUserId) && assignedId === currentUserId);
-                  const canConfirm = isStaffManager && isPending;
-                  const canAccept =
-                    ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                      (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
-                    canActOnThis;
-                  const canDecline =
-                    ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                      (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
-                    canActOnThis;
-                  const payoutLabel =
-                    typeof r.totalPrice === "number" && Number.isFinite(r.totalPrice) && r.totalPrice > 0
-                      ? `PHP ${Math.round(r.totalPrice).toLocaleString()}`
-                      : r.payout || "PHP --";
-                  const photoUrls = Array.isArray(r.photos)
-                    ? r.photos
-                    : Array.isArray(r.images)
-                      ? r.images
-                      : Array.isArray(r.pictures)
-                        ? r.pictures
-                        : [];
-
-                  return (
-                    <div
-                      key={r.id}
-                      className={`board-row ${statusClass}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openRequestModal(r)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openRequestModal(r);
-                        }
-                      }}
-                    >
-                      <div className="row-main">
-                        <div className="avatar-pill alt">
-                          {customerAvatar.url ? (
-                            <img src={customerAvatar.url} alt={customerAvatar.name} />
-                          ) : (
-                            customerAvatar.initials
-                          )}
-                        </div>
-                        <div>
-                          <strong>{serviceLabel}</strong>
-                          <p className="muted small">
-                            {customerName} - {r.location || "Location"}
-                          </p>
-                          {timeLabel && <p className="tiny muted">{timeLabel}</p>}
-                          {assignedId && (
-                            <p className="tiny muted">
-                              Assigned to: {assignedName || assignedId}
-                              {assignedRole ? ` (${assignedRole})` : ""}
-                            </p>
-                          )}
-                          {r.notes && <p className="tiny muted">{r.notes}</p>}
-                          {photoUrls.length > 0 && (
-                            <div className="req-photos" aria-label="Request photos">
-                              {photoUrls.slice(0, 3).map((u) => (
-                                <img key={u} src={u} alt="Request" loading="lazy" />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="row-meta actions">
-                        <span className="payout">{payoutLabel}</span>
-                        {awaitingOnSitePayment && (
-                          <span className="pill soft amber">Awaiting on-site payment</span>
-                        )}
-                        {staffArrived && (
-                          <span className="pill soft green arrived-pill arrived-pill--pulse">
-                            <i className="fas fa-check-circle" aria-hidden="true"></i> Arrived
-                          </span>
-                        )}
-                        <button
-                          className="icon-btn danger"
-                          aria-label="Decline"
-                          disabled={!canDecline}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRequestAction(r, "DECLINED");
-                          }}
-                        >
-                          <i className="fas fa-times"></i>
-                        </button>
-                        <button
-                          className="icon-btn"
-                          aria-label={canConfirm ? "Confirm" : "Accept"}
-                          disabled={!(canConfirm || canAccept)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED");
-                          }}
-                        >
-                          <i className={`fas ${canConfirm ? "fa-stamp" : "fa-check"}`}></i>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-            )}
-          </div>
-        </section>
-      )}
-
-      {isVisible("requests") && reservedCashRequests.length > 0 && (
-        <section className="panel card list-board" id="payment-confirmations">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Payments</p>
-              <h4>Cash on hand confirmations</h4>
-            </div>
-          </div>
-          <div className="board-items">
-            {reservedCashRequests.map((r) => {
-              const serviceLabel = r.serviceType || r.service || "Service request";
-              const timeLabel = formatSchedule(r);
-              const customerName = r.householderName || r.customer || "Customer";
-              const customerAvatar = getCustomerAvatar(r);
-              return (
-                <div key={r.id} className="board-row reserved">
-                  <div className="row-main">
-                    <div className="avatar-pill alt">
-                      {customerAvatar.url ? (
-                        <img src={customerAvatar.url} alt={customerAvatar.name} />
-                      ) : (
-                        customerAvatar.initials
-                      )}
-                    </div>
-                    <div>
-                      <strong>{serviceLabel}</strong>
-                      <p className="muted small">
-                        {customerName} - {r.location || "Location"}
-                      </p>
-                      {timeLabel && <p className="tiny muted">{timeLabel}</p>}
-                </div>
-              </div>
-              <div className="row-meta actions">
-                <span className="pill soft amber">Cash on hand</span>
-                <span className="pill soft amber">Awaiting on-site payment</span>
-                    <button
-                      className="btn pill primary"
-                      type="button"
-                      onClick={() => {
-                        openCashConfirm(r);
-                      }}
-                    >
-                      Mark payment received
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {isVisible("tasks") && (
-        <section className="panel card list-board" id="tasks">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Tasks</p>
-              <h4>Today & Upcoming</h4>
-            </div>
-          </div>
-          <div className="board-items">
-            {tasks.length === 0 ? (
-              <div className="empty-state">Accepted requests will appear here after staff action.</div>
-            ) : (
-              tasks.map((t) => {
-                const relatedRequest = (requests || []).find((r) => String(r.id) === String(t.id));
-                const customerAvatar = relatedRequest ? getCustomerAvatar(relatedRequest) : null;
-                return (
-                <div
-                  key={t.id}
-                  className={`board-row ${t.status}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => relatedRequest && openRequestModal(relatedRequest)}
-                  onKeyDown={(e) => {
-                    if (!relatedRequest) return;
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openRequestModal(relatedRequest);
-                    }
-                  }}
-                >
-                  <div className="row-main">
-                    <div className="avatar-pill">
-                      {customerAvatar?.url ? (
-                        <img src={customerAvatar.url} alt={customerAvatar.name} />
-                      ) : (
-                        customerAvatar?.initials || String(t.id).slice(-2)
-                      )}
-                    </div>
-                    <div>
-                      <strong>{t.title}</strong>
-                      <p className="muted small">
-                        {relatedRequest ? formatSchedule(relatedRequest) : t.time}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="row-meta">
-                    <span className={`chip ${t.status}`}>{t.status}</span>
-                    <button className="icon-btn" aria-label="Open task">
-                      <i className="fas fa-pen"></i>
-                    </button>
-                  </div>
-                </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-      )}
-
-      {isVisible("tasks") && (
-        <section className="panel card list-board" id="completed-tasks">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Completed</p>
-              <h4>Finished tasks</h4>
-            </div>
-          </div>
-          <div className="board-items">
-            {completedTasks.length === 0 ? (
-              <div className="empty-state">No completed tasks yet.</div>
-            ) : (
-              completedTasks.map((t) => {
-                const relatedRequest = (requests || []).find((r) => String(r.id) === String(t.id));
-                const customerAvatar = relatedRequest ? getCustomerAvatar(relatedRequest) : null;
-                return (
-                  <div
-                    key={t.id}
-                    className={`board-row completed`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => relatedRequest && openRequestModal(relatedRequest)}
-                    onKeyDown={(e) => {
-                      if (!relatedRequest) return;
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openRequestModal(relatedRequest);
-                      }
-                    }}
+              <div className="staff-requests-table">
+                <div className="staff-requests-tabs">
+                  <button
+                    type="button"
+                    className={`btn pill ${requestTab === "request" ? "primary" : "ghost"} staff-requests-tab`}
+                    onClick={() => setRequestTab("request")}
                   >
-                    <div className="row-main">
-                      <div className="avatar-pill">
-                        {customerAvatar?.url ? (
-                          <img src={customerAvatar.url} alt={customerAvatar.name} />
-                        ) : (
-                          customerAvatar?.initials || String(t.id).slice(-2)
+                    Request
+                    {incomingRequests.length > 0 && (
+                      <span className="staff-requests-tab__count">{incomingRequests.length}</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn pill ${requestTab === "pending" ? "primary" : "ghost"} staff-requests-tab`}
+                    onClick={() => setRequestTab("pending")}
+                  >
+                    Pending
+                    {attendanceRequests.length + cashConfirmationRequests.length > 0 && (
+                      <span className="staff-requests-tab__count">
+                        {attendanceRequests.length + cashConfirmationRequests.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn pill ${requestTab === "ongoing" ? "primary" : "ghost"} staff-requests-tab`}
+                    onClick={() => setRequestTab("ongoing")}
+                  >
+                    Ongoing
+                    {ongoingRequests.length > 0 && (
+                      <span className="staff-requests-tab__count">{ongoingRequests.length}</span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn pill ${requestTab === "completed" ? "primary" : "ghost"} staff-requests-tab`}
+                    onClick={() => setRequestTab("completed")}
+                  >
+                    Completed
+                  </button>
+                </div>
+                <div className="staff-requests-controls">
+                  <input
+                    type="text"
+                    placeholder="Search"
+                    value={requestSearch}
+                    onChange={(e) => setRequestSearch(e.target.value)}
+                  />
+                </div>
+                {requestTab === "request" && (
+                  <div className="staff-requests-list">
+                    {incomingRequests.filter((r) => matchesSearch(r, normalizeSearch(requestSearch))).length === 0 ? (
+                      <div className="staff-requests-empty">No incoming requests.</div>
+                    ) : (
+                      <div className="staff-requests-table-grid staff-requests-table-grid--3col">
+                        <div className="staff-requests-list-head">
+                          <span>Name</span>
+                          <span>Payment</span>
+                          <span>Action</span>
+                        </div>
+                        {incomingRequests
+                          .filter((r) => matchesSearch(r, normalizeSearch(requestSearch)))
+                          .map((r) => {
+                          const statusClass = getStatusLower(r);
+                          const isPending = statusClass === "pending";
+                          const isConfirmed = statusClass === "confirmed";
+                          const isReserved = statusClass === "reserved";
+                          const customerName = r.householderName || r.customer || "Customer";
+                          const customerAvatar = getCustomerAvatar(r);
+                          const serviceLabel = r.serviceType || r.service || "Service request";
+                          const timeLabel = formatSchedule(r);
+                          const assignedId = String(r.housekeeperId || "").trim();
+                          const assignedName = String(r.housekeeperName || "").trim();
+                          const assignedRole = String(r.housekeeperRole || "").trim();
+                          const canActOnThis = !assignedId || (Boolean(currentUserId) && assignedId === currentUserId);
+                          const canConfirm = isStaffManager && isPending;
+                          const canAccept =
+                            ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
+                              (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                            canActOnThis;
+                          const canDecline =
+                            ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
+                              (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                            canActOnThis;
+
+                          return (
+                            <div
+                              key={r.id}
+                              className="staff-requests-rowline staff-requests-rowline--request is-clickable"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openRequestModal(r)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openRequestModal(r);
+                                }
+                              }}
+                            >
+                              <div className="row-main">
+                                <div className="avatar-pill alt">
+                                  {customerAvatar.url ? (
+                                    <img src={customerAvatar.url} alt={customerAvatar.name} />
+                                  ) : (
+                                    customerAvatar.initials
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>{serviceLabel}</strong>
+                                  <p className="muted small">
+                                    {customerName} - {r.location || "Location"}
+                                  </p>
+                                  {timeLabel && <p className="tiny muted">{timeLabel}</p>}
+                                  {assignedId && (
+                                    <p className="tiny muted">
+                                      Assigned to: {assignedName || assignedId}
+                                      {assignedRole ? ` (${assignedRole})` : ""}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="row-meta">
+                                <span className={`chip ${statusClass}`}>{statusClass}</span>
+                              <span className="chip">{formatPaymentMethodLabel(getPaymentMethodKey(r)) || "UNPAID"}</span>
+                              </div>
+                              <div className="row-meta actions">
+                                {isPending && (
+                                  <button
+                                    className="btn ghost"
+                                    type="button"
+                                    disabled={!canDecline}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRequestAction(r, "DECLINED");
+                                    }}
+                                  >
+                                    Decline
+                                  </button>
+                                )}
+                                <button
+                                  className="btn primary"
+                                  type="button"
+                                  disabled={!(canConfirm || canAccept)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED");
+                                  }}
+                                >
+                                  {canConfirm ? "Confirm" : "Accept"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {requestTab === "pending" && (
+                  <div className="staff-requests-list">
+                    {[...attendanceRequests, ...cashConfirmationRequests]
+                      .filter((r) => matchesSearch(r, normalizeSearch(requestSearch))).length === 0 ? (
+                      <div className="staff-requests-empty">No pending requests.</div>
+                    ) : (
+                      <div className="staff-requests-table-grid staff-requests-table-grid--3col">
+                        <div className="staff-requests-list-head">
+                          <span>Name</span>
+                          <span>Status</span>
+                          <span>Action</span>
+                        </div>
+                        {[...attendanceRequests, ...cashConfirmationRequests]
+                          .filter((r) => matchesSearch(r, normalizeSearch(requestSearch)))
+                          .map((r) => {
+                            const customerName = r.householderName || r.customer || "Customer";
+                            const customerAvatar = getCustomerAvatar(r);
+                            const serviceLabel = r.serviceType || r.service || "Service request";
+                            const timeLabel = formatSchedule(r);
+                            const staffArrived = Boolean(r.staffArrived);
+                            const customerConfirmed = Boolean(r.customerArrivalConfirmed);
+
+                            return (
+                              <div
+                                key={r.id}
+                                className="staff-requests-rowline is-clickable"
+                                role="button"
+                              tabIndex={0}
+                              onClick={() => openRequestModal(r)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openRequestModal(r);
+                                }
+                              }}
+                            >
+                              <div className="row-main">
+                                <div className="avatar-pill alt">
+                                  {customerAvatar.url ? (
+                                    <img src={customerAvatar.url} alt={customerAvatar.name} />
+                                  ) : (
+                                    customerAvatar.initials
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>{serviceLabel}</strong>
+                                  <p className="muted small">{customerName}</p>
+                                  {timeLabel && <p className="tiny muted">{timeLabel}</p>}
+                                </div>
+                              </div>
+                              <div className="row-meta">
+                                {staffArrived ? (
+                                  <span className={`pill soft ${customerConfirmed ? "green" : "amber"}`}>
+                                    {customerConfirmed ? "Customer confirmed" : "Awaiting confirmation"}
+                                  </span>
+                                ) : (
+                                  <span className="pill soft amber">Not arrived</span>
+                                )}
+                                {isCashReserved(r) && <span className="pill soft amber">Cash on hand</span>}
+                              </div>
+                              <div className="row-meta actions">
+                                {!staffArrived && (
+                                  <button
+                                    className="btn ghost"
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      triggerArrivedClick(r);
+                                      handleStaffArrived?.(r);
+                                    }}
+                                  >
+                                    Mark arrived
+                                  </button>
+                                )}
+                                {isCashReserved(r) && staffArrived && (
+                                  <button
+                                    className="btn ghost"
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openCashConfirm(r);
+                                    }}
+                                  >
+                                    Mark payment
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {requestTab === "ongoing" && (
+                  <div className="staff-requests-list">
+                    {ongoingRequests.filter((r) => matchesSearch(r, normalizeSearch(requestSearch))).length === 0 ? (
+                      <div className="staff-requests-empty">No ongoing tasks.</div>
+                    ) : (
+                      <div className="staff-requests-table-grid staff-requests-table-grid--3col">
+                        <div className="staff-requests-list-head">
+                          <span>Name</span>
+                          <span>Status</span>
+                          <span>Action</span>
+                        </div>
+                        {ongoingRequests
+                          .filter((r) => matchesSearch(r, normalizeSearch(requestSearch)))
+                          .map((r) => {
+                            const customerName = r.householderName || r.customer || "Customer";
+                            const customerAvatar = getCustomerAvatar(r);
+                            const serviceLabel = r.serviceType || r.service || "Service request";
+                            const timeLabel = formatSchedule(r);
+                            const hasPaymentMethod = Boolean(paymentMethodByRequestId?.[r.id] || r.paymentMethod);
+                            const canComplete = hasPaymentMethod && Boolean(r.customerArrivalConfirmed);
+                            return (
+                              <div
+                                key={r.id}
+                                className="staff-requests-rowline is-clickable"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openRequestModal(r)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    openRequestModal(r);
+                                  }
+                                }}
+                              >
+                                <div className="row-main">
+                                  <div className="avatar-pill alt">
+                                    {customerAvatar.url ? (
+                                      <img src={customerAvatar.url} alt={customerAvatar.name} />
+                                    ) : (
+                                      customerAvatar.initials
+                                    )}
+                                  </div>
+                                  <div>
+                                    <strong>{serviceLabel}</strong>
+                                    <p className="muted small">{customerName}</p>
+                                    {timeLabel && <p className="tiny muted">{timeLabel}</p>}
+                                  </div>
+                                </div>
+                                <div className="row-meta">
+                                  <span className="pill soft blue">In progress</span>
+                                </div>
+                                <div className="row-meta actions">
+                                  <button
+                                    className="btn primary"
+                                    type="button"
+                                    disabled={!canComplete}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveRequest(r);
+                                      openCompleteConfirm();
+                                    }}
+                                  >
+                                    Complete
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {requestTab === "completed" && (
+                  <div className="staff-requests-list">
+                    {activeHistoryList.length === 0 ? (
+                      <div className="staff-requests-empty">No completed services yet.</div>
+                    ) : (
+                      <div className="staff-requests-table-grid staff-requests-table-grid--2col">
+                        <div className="staff-requests-list-head staff-requests-list-head--two">
+                          <span>Name</span>
+                          <span>Action</span>
+                        </div>
+                        {completedPaged.map((h) => {
+                          const relatedRequest = (requests || []).find(
+                            (req) => String(req?.id || "") === String(h.id || "")
+                          );
+                          const canOpen = Boolean(relatedRequest);
+                          return (
+                        <div
+                          key={h.id}
+                          className={`staff-requests-rowline staff-requests-rowline--two ${
+                            canOpen ? "is-clickable" : ""
+                          }`}
+                          role={canOpen ? "button" : undefined}
+                          tabIndex={canOpen ? 0 : undefined}
+                          onClick={() => {
+                            if (relatedRequest) openRequestModal(relatedRequest);
+                          }}
+                          onKeyDown={(e) => {
+                            if (!relatedRequest) return;
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              openRequestModal(relatedRequest);
+                            }
+                          }}
+                        >
+                          <div>
+                            <strong>{h.job}</strong>
+                            <p className="muted small">{h.date}</p>
+                            <p className="tiny muted">{h.payout}</p>
+                            <p className="tiny muted">{h.payment}</p>
+                          </div>
+                          <div className="row-meta actions">
+                            <button
+                              className="btn ghost"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                archiveHistoryItem(h);
+                              }}
+                            >
+                              Archive
+                            </button>
+                          </div>
+                        </div>
+                          );
+                        })}
+                        {completedTotalPages > 1 && (
+                          <div className="staff-requests-pagination">
+                            <button
+                              className="btn pill ghost"
+                              type="button"
+                              disabled={completedCurrentPage <= 1}
+                              onClick={() => setCompletedPage((p) => Math.max(1, p - 1))}
+                            >
+                              Prev
+                            </button>
+                            <span className="muted small">
+                              Page {completedCurrentPage} of {completedTotalPages}
+                            </span>
+                            <button
+                              className="btn pill ghost"
+                              type="button"
+                              disabled={completedCurrentPage >= completedTotalPages}
+                              onClick={() => setCompletedPage((p) => Math.min(completedTotalPages, p + 1))}
+                            >
+                              Next
+                            </button>
+                          </div>
                         )}
                       </div>
-                      <div>
-                        <strong>{t.title}</strong>
-                        <p className="muted small">
-                          {relatedRequest ? formatSchedule(relatedRequest) : t.time}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="row-meta">
-                      <span className="chip completed">completed</span>
-                      <button className="icon-btn" aria-label="Open task">
-                        <i className="fas fa-pen"></i>
-                      </button>
-                    </div>
+                    )}
                   </div>
-                );
-              })
+                )}
+              </div>
             )}
           </div>
         </section>
       )}
-
       
 
       {isVisible("notifications") && (
@@ -1053,9 +1310,6 @@ function StaffMain({
                 <i className="fas fa-receipt"></i>
               </div>
               <h3>Request details</h3>
-              <div className={`staff-track-status-pill status-${String(activeRequest.status || "PENDING").toLowerCase()}`}>
-                {String(activeRequest.status || "PENDING").toUpperCase()}
-              </div>
             </div>
             <div className="staff-request-modal__header">
               <button className="icon-btn" type="button" onClick={closeRequestModal}>
@@ -1095,7 +1349,10 @@ function StaffMain({
                 </div>
                 <div>
                   <small>Payment status</small>
-                  <strong>{activeRequest.paymentStatus || "--"}</strong>
+                  <strong>
+                    {activeRequest.paymentStatus ||
+                      (activeRequest.paidAt || activeRequest.cashReceivedAt ? "PAID" : "--")}
+                  </strong>
                 </div>
                 {activeRequest?.staffArrived && (
                   <div>
@@ -1145,11 +1402,26 @@ function StaffMain({
               <button className="btn ghost" type="button" onClick={closeRequestModal}>
                 Close
               </button>
+              {(() => {
+                const hasPaymentMethod = Boolean(
+                  paymentMethodByRequestId?.[activeRequest.id] || activeRequest.paymentMethod
+                );
+                const isArrivalConfirmed = Boolean(activeRequest.customerArrivalConfirmed);
+                const statusLower = String(activeRequest.status || "").toLowerCase();
+                const paymentStatus = String(activeRequest.paymentStatus || "").toUpperCase();
+                const paymentMethod = String(
+                  activeRequest.paymentMethod || activeRequest.paidVia || ""
+                ).toUpperCase();
+                const cashReserved = paymentMethod === "CASH_ON_HAND" && paymentStatus === "RESERVED";
+                const canComplete =
+                  statusLower === "accepted" && hasPaymentMethod && isArrivalConfirmed && !cashReserved;
+                const showComplete = requestTab === "request" || requestTab === "ongoing";
+                return (
+                  <>
               {String(activeRequest.status || "").toLowerCase() === "accepted" &&
                 String(activeRequest.paymentStatus || "").toUpperCase() === "RESERVED" &&
                 String(activeRequest.paymentMethod || activeRequest.paidVia || "").toUpperCase() === "CASH_ON_HAND" &&
-                activeRequest.staffArrived &&
-                activeRequest.customerArrivalConfirmed && (
+                activeRequest.staffArrived && (
                   <button
                     className="btn primary"
                     type="button"
@@ -1160,17 +1432,12 @@ function StaffMain({
                     Mark payment received
                   </button>
                 )}
-              {String(activeRequest.status || "").toLowerCase() === "accepted" && (
+              {showComplete && (
                 <button
                   className="btn primary"
                   type="button"
                   onClick={openCompleteConfirm}
-                  disabled={
-                    !(
-                      paymentMethodByRequestId?.[activeRequest.id] ||
-                      activeRequest.paymentMethod
-                    )
-                  }
+                  disabled={!canComplete}
                 >
                   Complete
                 </button>
@@ -1190,6 +1457,9 @@ function StaffMain({
                     Mark arrived
                   </button>
                 )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1598,8 +1868,100 @@ function StaffMain({
           </div>
         </section>
       )}
+
+      {isVisible("schedule") && (
+        <section className="panel card calendar-card" id="schedule">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Attendance</p>
+              <h4>Staff attendance</h4>
+            </div>
+            <div className="calendar-nav">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() =>
+                  setAttendanceMonth((prev) => {
+                    const next = new Date(prev.year, prev.month - 1, 1);
+                    return { year: next.getFullYear(), month: next.getMonth() };
+                  })
+                }
+              >
+                Prev
+              </button>
+              <span className="pill soft">{attendanceCalendar.monthLabel}</span>
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() =>
+                  setAttendanceMonth((prev) => {
+                    const next = new Date(prev.year, prev.month + 1, 1);
+                    return { year: next.getFullYear(), month: next.getMonth() };
+                  })
+                }
+              >
+                Next
+              </button>
+            </div>
+          </div>
+          {attendanceLoading ? (
+            <div className="mini-calendar">Loading attendance...</div>
+          ) : (
+            <>
+              <div className="attendance-calendar">
+                <div className="calendar-head">
+                  {attendanceCalendar.weekLabels.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+                <div className="calendar-grid">
+                  {attendanceCalendar.calendarCells.map((cell) =>
+                    cell.empty ? (
+                      <div key={cell.key} className="calendar-cell empty" />
+                    ) : (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        className={`calendar-cell ${cell.hasAttendance ? "has-attendance" : ""} ${
+                          cell.isToday ? "is-today" : ""
+                        } ${attendanceSelectedKey === cell.key ? "is-selected" : ""}`}
+                        onClick={() => setAttendanceSelectedKey(cell.key)}
+                      >
+                        <span className="day-number">{cell.day}</span>
+                        {cell.hasAttendance && <span className="attendance-dot" />}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="attendance-list">
+                {attendanceCalendar.attendanceList.filter((entry) =>
+                  attendanceSelectedKey ? entry.dateKey === attendanceSelectedKey : true
+                ).length === 0 ? (
+                  <div className="mini-calendar">No attendance yet.</div>
+                ) : (
+                  attendanceCalendar.attendanceList
+                    .filter((entry) =>
+                      attendanceSelectedKey ? entry.dateKey === attendanceSelectedKey : true
+                    )
+                    .map((entry) => (
+                      <div key={entry.id} className="attendance-row">
+                        <div>
+                          <span className="attendance-date">{entry.date}</span>
+                          <div className="tiny muted">{entry.service}</div>
+                        </div>
+                        <span>{entry.time}</span>
+                      </div>
+                    ))
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </main>
   );
 }
 
 export default StaffMain;
+
