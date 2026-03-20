@@ -1643,6 +1643,17 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   color: #0f2e4d;
 }
 
+.notification-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f3d73;
+  background: #e8f1ff;
+  border: 1px solid #c7ddff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 .notification-body {
   margin: 6px 0 0;
   color: #1f2e4d;
@@ -2001,6 +2012,7 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   border-color: #bdecd2;
 }
 
+
 .staff-modal-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -2242,6 +2254,12 @@ html.dark-mode .panel.card h4 {
 
 html.dark-mode .notification-title {
   color: #e5e7f0;
+}
+
+html.dark-mode .notification-time {
+  color: #e2e8f0;
+  background: #0b1220;
+  border-color: #1f2937;
 }
 
 html.dark-mode .notification-item {

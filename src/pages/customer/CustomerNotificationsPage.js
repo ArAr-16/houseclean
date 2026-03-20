@@ -13,10 +13,51 @@ import {
 
 function formatWhen(value) {
   if (value == null) return "";
-  if (typeof value?.toDate === "function") return value.toDate().toLocaleString();
+  if (typeof value?.toDate === "function") {
+    const dateObj = value.toDate();
+    const dateLabel = dateObj.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  }
   const ms = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(ms) || ms <= 0) return "";
-  return new Date(ms).toLocaleString();
+  let dateObj = null;
+  if (Number.isFinite(ms) && ms > 0) {
+    dateObj = new Date(ms);
+  } else {
+    const parsed = new Date(String(value));
+    if (!Number.isNaN(parsed.getTime())) dateObj = parsed;
+  }
+  if (!dateObj) return "";
+  const dateLabel = dateObj.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel} • ${timeLabel}`;
+}
+
+function formatNotificationBody(text) {
+  if (!text) return "";
+  const raw = String(text);
+  return raw.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?/g, (match) => {
+    const parsed = new Date(match);
+    if (Number.isNaN(parsed.getTime())) return match;
+    const dateLabel = parsed.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  });
 }
 
 function inferType(n) {
@@ -44,6 +85,7 @@ function CustomerNotificationsInner({ filter, setFilter }) {
   const ctx = useCustomerChrome();
   const { notifications, loading } = useCustomerNotifications(ctx.authUser?.uid, { limit: 80 });
   const { requests } = useCustomerServiceRequests(ctx.authUser?.uid);
+  const [activeNotif, setActiveNotif] = useState(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackRequest, setFeedbackRequest] = useState(null);
   const [feedbackRating, setFeedbackRating] = useState(0);
@@ -128,7 +170,7 @@ function CustomerNotificationsInner({ filter, setFilter }) {
   }, [requests]);
 
   const combined = useMemo(() => {
-    const fromDb = (notifications || []).map((n) => ({ ...n, type: inferType(n) }));
+    const fromDb = (notifications || []).map((n) => ({ ...n, type: inferType(n), _source: "db" }));
     const merged = [...fromDb, ...derivedAlerts];
     const byId = new Map();
     merged.forEach((n) => {
@@ -157,6 +199,52 @@ function CustomerNotificationsInner({ filter, setFilter }) {
     setFeedbackRequest(null);
     setFeedbackError("");
   };
+
+  const markRead = async (notif) => {
+    if (!notif || notif._source !== "db") return;
+    const uid = ctx.authUser?.uid;
+    if (!uid || !notif.id) return;
+    try {
+      await rtdbUpdate(rtdbRef(rtdb, `UserNotifications/${uid}/${notif.id}`), {
+        read: true,
+        readAt: rtdbServerTimestamp()
+      });
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  const markUnread = async (notif) => {
+    if (!notif || notif._source !== "db") return;
+    const uid = ctx.authUser?.uid;
+    if (!uid || !notif.id) return;
+    try {
+      await rtdbUpdate(rtdbRef(rtdb, `UserNotifications/${uid}/${notif.id}`), {
+        read: false,
+        readAt: ""
+      });
+    } catch (_) {
+      // ignore
+    }
+  };
+
+  const markAllRead = () => {
+    (notifications || [])
+      .filter((n) => !n.read)
+      .forEach((n) => markRead({ ...n, _source: "db" }));
+  };
+
+  const openNotif = (notif) => {
+    if (!notif) return;
+    if (notif._source === "db" && !notif.read) {
+      markRead(notif);
+      setActiveNotif({ ...notif, read: true });
+      return;
+    }
+    setActiveNotif(notif);
+  };
+
+  const closeNotif = () => setActiveNotif(null);
 
   const sendNotification = async ({ toUserId, title, body, requestId }) => {
     if (!toUserId) return;
@@ -245,13 +333,17 @@ function CustomerNotificationsInner({ filter, setFilter }) {
             <p className="eyebrow">Notifications</p>
             <h3>Alerts & updates</h3>
           </div>
-          <span className="pill stat">{visible.length}</span>
-        </div>
-
-        <div className="filters">
-          <label>
-            Category
-            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <div className="notif-toolbar">
+            <span className="pill stat">{visible.length}</span>
+            <button className="btn pill ghost" type="button" onClick={markAllRead}>
+              Mark all read
+            </button>
+            <select
+              className="pill-select"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Filter notifications"
+            >
               <option value="all">All</option>
               <option value="schedule">Upcoming schedules</option>
               <option value="payment">Payment reminders</option>
@@ -259,31 +351,47 @@ function CustomerNotificationsInner({ filter, setFilter }) {
               <option value="feedback">Feedback</option>
               <option value="general">General</option>
             </select>
-          </label>
+          </div>
         </div>
         {loading && notifications.length === 0 ? (
           <div className="muted small">Loading notifications...</div>
         ) : visible.length === 0 ? (
           <div className="muted small">No alerts yet.</div>
         ) : (
-          <div className="notification-feed">
+          <div className="notification-list">
             {visible.slice(0, 40).map((n) => {
               const canRate =
                 String(n.type || "") === "feedback" &&
                 String(n.requestId || n.requestID || n.request_id || "").trim();
+              const isUnread = n._source === "db" ? !n.read : false;
               return (
-                <div key={n.id} className={`notif-item ${String(n.type || "general")}`}>
-                  <div className="notif-top">
-                    <strong>{n.title || "Update"}</strong>
-                    <span className="muted tiny">{formatWhen(n.createdAt) || "—"}</span>
+                <div
+                  key={n.id}
+                  className={`notification-item ${isUnread ? "unread" : "read"}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openNotif(n)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openNotif(n);
+                    }
+                  }}
+                >
+                  <div className="notification-top">
+                    <span className="notification-title">{n.title || "Update"}</span>
+                    <span className="notification-time">{formatWhen(n.createdAt) || "--"}</span>
                   </div>
-                  <p className="muted small">{n.body || ""}</p>
+                  <p className="notification-body">
+                    {formatNotificationBody(n.body || n.message || "")}
+                  </p>
                   {canRate && (
                     <div className="notif-actions">
                       <button
                         className="btn pill small primary"
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const requestId = String(n.requestId || n.requestID || n.request_id || "").trim();
                           if (!requestId) return;
                           const match =
@@ -295,13 +403,44 @@ function CustomerNotificationsInner({ filter, setFilter }) {
                         Rate now
                       </button>
                     </div>
-        )}
+                  )}
                 </div>
               );
             })}
           </div>
         )}
       </section>
+
+      {activeNotif && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={closeNotif} />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-bell"></i>
+            </div>
+            <h4>{activeNotif.title || "Notification"}</h4>
+            <p className="notification-time modal-time">{formatWhen(activeNotif.createdAt) || "--"}</p>
+            <p>{formatNotificationBody(activeNotif.body || activeNotif.message || "--")}</p>
+            <div className="customer-modal__actions">
+              {activeNotif._source === "db" && activeNotif.read && (
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() => {
+                    markUnread(activeNotif);
+                    closeNotif();
+                  }}
+                >
+                  Mark unread
+                </button>
+              )}
+              <button className="btn pill primary" type="button" onClick={closeNotif}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showFeedbackModal && feedbackRequest && (
         <div className="customer-modal">
@@ -362,6 +501,7 @@ function CustomerNotificationsInner({ filter, setFilter }) {
     </>
   );
 }
+
 
 
 

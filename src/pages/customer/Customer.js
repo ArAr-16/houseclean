@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./Customer.css";
 import Logo from "../../components/Logo.png";
@@ -422,7 +422,7 @@ function Customer() {
           const availabilityLabel = String(user?.availability || "").trim()
             ? String(user?.availability).trim()
             : availabilityDays.length && availabilityStart && availabilityEnd
-              ? `${availabilityDays.join(", ")} · ${availabilityStart}-${availabilityEnd}`
+              ? `${availabilityDays.join(", ")} Â· ${availabilityStart}-${availabilityEnd}`
               : "";
           return {
             id: String(user?.id || ""),
@@ -584,6 +584,47 @@ function Customer() {
     if (key === "STATIC_QR") return "Static QR";
     if (key === "CASH_ON_HAND") return "Cash on Hand";
     return value ? String(value) : "--";
+  };
+  const normalizeStatus = (raw) => {
+    const value = String(raw || "").trim().toUpperCase();
+    if (value === "CANCELLED" || value === "DECLINED" || value.includes("DECLIN")) return "CANCELLED";
+    if (value === "REJECTED" || value.includes("REJECT")) return "CANCELLED";
+    if (value === "ACCEPTED") return "ACCEPTED";
+    if (value === "CONFIRMED") return "ACCEPTED";
+    if (value === "COMPLETED") return "COMPLETED";
+    return "PENDING";
+  };
+
+  const formatBookedAt = (req) => {
+    const raw =
+      req?.createdAt ??
+      req?.timestamp ??
+      req?.requestedAt ??
+      req?.requestCreatedAt ??
+      req?.created_at ??
+      "";
+    if (!raw) return "--";
+    if (typeof raw?.toDate === "function") {
+      const dateObj = raw.toDate();
+      const dateLabel = dateObj.toLocaleDateString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+      const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return String(raw);
+    const dateLabel = parsed.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
   };
 
   const downloadFile = (filename, content, mime = "text/plain;charset=utf-8") => {
@@ -965,105 +1006,105 @@ function Customer() {
           </div>
         </div>
       )}
-      {paymentModalOpen && paymentTarget && (
-        <div className="share-modal payment-modal">
+            {paymentModalOpen && paymentTarget && (
+        <div className="customer-modal">
           <div
-            className="share-modal__backdrop"
+            className="customer-modal__backdrop"
             onClick={() => setPaymentModalOpen(false)}
           />
           <div
-            className="share-modal__panel payment-modal__panel"
+            className="customer-modal__panel track-modal payment-modal__panel"
             role="dialog"
             aria-modal="true"
-            aria-label="Request details"
+            aria-label="Payment details"
           >
-            <div className="share-modal__header">
-              <h4>Request details</h4>
-              <button
-                className="icon-btn share-close"
-                type="button"
-                onClick={() => setPaymentModalOpen(false)}
-                aria-label="Close details"
-              >
-                <i className="fas fa-times"></i>
-              </button>
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-credit-card"></i>
             </div>
-            <div className="share-modal__body">
-              <div className="payment-modal__meta">
-                <strong>{paymentTarget.serviceType || "Service"}</strong>
-                <span className="muted small">
+            <h4>Payment details</h4>
+            <div className={`status-pill status-${normalizeStatus(paymentTarget.status).toLowerCase()}`}>
+              {normalizeStatus(paymentTarget.status)}
+            </div>
+            <div className="track-modal__grid">
+              <div>
+                <small>Request ID</small>
+                <strong>{paymentTarget.requestId || paymentTarget.id || "--"}</strong>
+              </div>
+              <div>
+                <small>Service</small>
+                <strong>
+                  {Array.isArray(paymentTarget.serviceTypes) && paymentTarget.serviceTypes.length > 0
+                    ? paymentTarget.serviceTypes.join(", ")
+                    : paymentTarget.serviceType || "--"}
+                </strong>
+              </div>
+              <div>
+                <small>Schedule</small>
+                <strong>
                   {formatDateTimeLabel(
                     paymentTarget.startDate,
                     paymentTarget.date,
                     paymentTarget.time
                   )}
-                </span>
-                <span className="pill stat">{moneyLabel(paymentTarget.totalPrice)}</span>
+                </strong>
               </div>
-              <div className="payment-modal__details">
-                <div>
-                  <span className="muted tiny">Request ID</span>
-                  <strong>{paymentTarget.requestId || paymentTarget.id || "--"}</strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Services</span>
-                  <strong>
-                    {Array.isArray(paymentTarget.serviceTypes) && paymentTarget.serviceTypes.length > 0
-                      ? paymentTarget.serviceTypes.join(", ")
-                      : paymentTarget.serviceType || "--"}
-                  </strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Status</span>
-                  <strong>{String(paymentTarget.status || "PENDING").toUpperCase()}</strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Payment</span>
-                  <strong>
-                    {formatPaymentMethodLabel(
-                      paymentTarget.paymentMethod || paymentTarget.paidVia
-                    )}
-                  </strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Assigned staff</span>
-                  <strong>{paymentTarget.housekeeperName || "Unassigned"}</strong>
-                </div>
+              <div>
+                <small>Booked at</small>
+                <strong>{formatBookedAt(paymentTarget)}</strong>
               </div>
-              <div className="payment-modal__actions">
+              <div>
+                <small>Total</small>
+                <strong>{moneyLabel(paymentTarget.totalPrice)}</strong>
+              </div>
+              <div>
+                <small>Payment</small>
+                <strong>
+                  {formatPaymentMethodLabel(
+                    paymentTarget.paymentMethod || paymentTarget.paidVia
+                  )}
+                </strong>
+              </div>
+              <div>
+                <small>Assigned staff</small>
+                <strong>{paymentTarget.housekeeperName || "Unassigned"}</strong>
+              </div>
+            </div>
+            <div className="track-modal__actions">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() =>
+                  downloadFile(
+                    `invoice_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
+                    buildInvoice(paymentTarget)
+                  )
+                }
+              >
+                Download invoice
+              </button>
+              {canRequestRefund(paymentTarget) && (
                 <button
                   className="btn pill ghost"
                   type="button"
-                  onClick={() =>
-                    downloadFile(
-                      `invoice_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
-                      buildInvoice(paymentTarget)
-                    )
-                  }
+                  onClick={() => openRefundModal(paymentTarget)}
                 >
-                  Download invoice
+                  Request refund
                 </button>
-                {canRequestRefund(paymentTarget) && (
-                  <button
-                    className="btn pill ghost"
-                    type="button"
-                    onClick={() => openRefundModal(paymentTarget)}
-                  >
-                    Request refund
-                  </button>
-                )}
-              </div>
+              )}
+            </div>
 
-              {String(paymentTarget.status || "").toUpperCase() === "PENDING_PAYMENT" &&
-                String(paymentTarget.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
-                  <div className="payment-inline">
-                    <p className="muted small">Enter the transaction ID from your QR payment.</p>
-                    <input
-                      type="text"
-                      placeholder="Transaction ID"
-                      value={paymentTxn}
-                      onChange={(e) => setPaymentTxn(e.target.value)}
-                    />
+            {String(paymentTarget.status || "").toUpperCase() === "PENDING_PAYMENT" &&
+              String(paymentTarget.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
+                <div className="track-modal__notes">
+                  <small>QR payment</small>
+                  <p>Enter the transaction ID from your QR payment.</p>
+                  <input
+                    type="text"
+                    placeholder="Transaction ID"
+                    value={paymentTxn}
+                    onChange={(e) => setPaymentTxn(e.target.value)}
+                  />
+                  <div className="track-modal__actions">
                     <button
                       className="btn pill primary"
                       type="button"
@@ -1073,7 +1114,16 @@ function Customer() {
                       {paymentSaving ? "Saving..." : "Submit QR Payment"}
                     </button>
                   </div>
-                )}
+                </div>
+              )}
+            <div className="customer-modal__actions">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() => setPaymentModalOpen(false)}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -1189,3 +1239,16 @@ function Customer() {
 }
 
 export default Customer;
+
+
+
+
+
+
+
+
+
+
+
+
+

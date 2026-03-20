@@ -321,6 +321,74 @@ function StaffMain({
     return `${dateLabel} • ${timeLabel}`;
   };
 
+  const formatBookedAt = (req) => {
+    const raw =
+      req?.createdAt ??
+      req?.timestamp ??
+      req?.requestedAt ??
+      req?.requestCreatedAt ??
+      req?.created_at ??
+      "";
+    if (!raw) return "--";
+    if (typeof raw?.toDate === "function") {
+      const dateObj = raw.toDate();
+      const dateLabel = dateObj.toLocaleDateString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+      const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return String(raw);
+    const dateLabel = parsed.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  };
+
+  const formatNotificationWhen = (value) => {
+    if (!value) return "--";
+    let dateObj = value;
+    if (typeof value?.toDate === "function") dateObj = value.toDate();
+    if (!(dateObj instanceof Date)) {
+      const parsed = new Date(dateObj);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      dateObj = parsed;
+    }
+    const dateLabel = dateObj.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  };
+
+  const formatNotificationBody = (text) => {
+    if (!text) return "";
+    const raw = String(text);
+    return raw.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?/g, (match) => {
+      const parsed = new Date(match);
+      if (Number.isNaN(parsed.getTime())) return match;
+      const dateLabel = parsed.toLocaleDateString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+      const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    });
+  };
+
   const formatPaymentMethodLabel = (value) => {
     const key = String(value || "").trim().toUpperCase();
     if (key === "STATIC_QR") return "Static QR";
@@ -1224,8 +1292,8 @@ function StaffMain({
                     ) : (
                       <div className="staff-requests-table-grid staff-requests-table-grid--3col">
                         <div className="staff-requests-list-head">
-                          <span>Name</span>
-                          <span>Payment</span>
+                          <span>Name/Services</span>
+                          <span>Payment Status</span>
                           <span>Action</span>
                         </div>
                         {incomingRequests
@@ -1237,11 +1305,34 @@ function StaffMain({
                           const isReserved = statusClass === "reserved";
                           const customerName = r.householderName || r.customer || "Customer";
                           const customerAvatar = getCustomerAvatar(r);
-                          const serviceLabel = r.serviceType || r.service || "Service request";
+                          const serviceList = Array.isArray(r.serviceTypes)
+                            ? r.serviceTypes
+                            : String(r.serviceType || r.service || "")
+                                .split(",")
+                                .map((item) => item.trim())
+                                .filter(Boolean);
+                          const baseServiceLabel = serviceList[0] || "Service request";
+                          const serviceLabel = serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
                           const timeLabel = formatSchedule(r);
                           const assignedId = String(r.housekeeperId || "").trim();
                           const assignedName = String(r.housekeeperName || "").trim();
                           const assignedRole = String(r.housekeeperRole || "").trim();
+                          const paymentStatusKey = getPaymentStatusKey(r);
+                          const paymentMethodKey = getPaymentMethodKey(r);
+                          const paymentLabel = (() => {
+                            if (isPaid(r)) return "Paid";
+                            if (isCashReserved(r)) return "Reserved";
+                            if (paymentStatusKey) return paymentStatusKey.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (m) => m.toUpperCase());
+                            if (paymentMethodKey) return "Pending";
+                            return "Unpaid";
+                          })();
+                          const paymentTone = (() => {
+                            if (isPaid(r)) return "green";
+                            if (isCashReserved(r)) return "amber";
+                            if (paymentStatusKey) return "blue";
+                            if (paymentMethodKey) return "blue";
+                            return "amber";
+                          })();
                           const canActOnThis = !assignedId || (Boolean(currentUserId) && assignedId === currentUserId);
                           const canConfirm = isStaffManager && isPending;
                           const canAccept =
@@ -1281,17 +1372,14 @@ function StaffMain({
                                     {customerName} - {r.location || "Location"}
                                   </p>
                                   {timeLabel && <p className="tiny muted">{timeLabel}</p>}
-                                  {assignedId && (
-                                    <p className="tiny muted">
-                                      Assigned to: {assignedName || assignedId}
-                                      {assignedRole ? ` (${assignedRole})` : ""}
-                                    </p>
-                                  )}
                                 </div>
                               </div>
                               <div className="row-meta">
-                                <span className={`chip ${statusClass}`}>{statusClass}</span>
-                              <span className="chip">{formatPaymentMethodLabel(getPaymentMethodKey(r)) || "UNPAID"}</span>
+                                <span
+                                  className={`pill soft ${paymentTone}`}
+                                >
+                                  {paymentLabel}
+                                </span>
                               </div>
                               <div className="row-meta actions">
                                 <button
@@ -1337,7 +1425,7 @@ function StaffMain({
                     ) : (
                       <div className="staff-requests-table-grid staff-requests-table-grid--3col">
                         <div className="staff-requests-list-head">
-                          <span>Name</span>
+                          <span>Name/Services</span>
                           <span>Status</span>
                           <span>Action</span>
                         </div>
@@ -1346,7 +1434,15 @@ function StaffMain({
                           .map((r) => {
                             const customerName = r.householderName || r.customer || "Customer";
                             const customerAvatar = getCustomerAvatar(r);
-                            const serviceLabel = r.serviceType || r.service || "Service request";
+                            const serviceList = Array.isArray(r.serviceTypes)
+                              ? r.serviceTypes
+                              : String(r.serviceType || r.service || "")
+                                  .split(",")
+                                  .map((item) => item.trim())
+                                  .filter(Boolean);
+                            const baseServiceLabel = serviceList[0] || "Service request";
+                            const serviceLabel =
+                              serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
                             const timeLabel = formatSchedule(r);
                             const staffArrived = Boolean(r.staffArrived);
                             const customerConfirmed = Boolean(r.customerArrivalConfirmed);
@@ -1387,7 +1483,6 @@ function StaffMain({
                                 ) : (
                                   <span className="pill soft amber">Not arrived</span>
                                 )}
-                                {isCashReserved(r) && <span className="pill soft amber">Cash on hand</span>}
                               </div>
                               <div className="row-meta actions">
                                 {!staffArrived && (
@@ -1432,7 +1527,7 @@ function StaffMain({
                     ) : (
                       <div className="staff-requests-table-grid staff-requests-table-grid--3col">
                         <div className="staff-requests-list-head">
-                          <span>Name</span>
+                          <span>Name/Services</span>
                           <span>Status</span>
                           <span>Action</span>
                         </div>
@@ -1441,7 +1536,15 @@ function StaffMain({
                           .map((r) => {
                             const customerName = r.householderName || r.customer || "Customer";
                             const customerAvatar = getCustomerAvatar(r);
-                            const serviceLabel = r.serviceType || r.service || "Service request";
+                            const serviceList = Array.isArray(r.serviceTypes)
+                              ? r.serviceTypes
+                              : String(r.serviceType || r.service || "")
+                                  .split(",")
+                                  .map((item) => item.trim())
+                                  .filter(Boolean);
+                            const baseServiceLabel = serviceList[0] || "Service request";
+                            const serviceLabel =
+                              serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
                             const timeLabel = formatSchedule(r);
                             const hasPaymentMethod = Boolean(paymentMethodByRequestId?.[r.id] || r.paymentMethod);
                             const canComplete = hasPaymentMethod && Boolean(r.customerArrivalConfirmed);
@@ -1504,7 +1607,7 @@ function StaffMain({
                     ) : (
                       <div className="staff-requests-table-grid staff-requests-table-grid--2col">
                         <div className="staff-requests-list-head staff-requests-list-head--two">
-                          <span>Name</span>
+                          <span>Name/Services</span>
                           <span>Action</span>
                         </div>
                         {completedPaged.map((h) => {
@@ -1646,9 +1749,9 @@ function StaffMain({
                 >
                   <div className="notification-top">
                     <span className="notification-title">{n.title || "Update"}</span>
-                    <span className="muted tiny">{formatWhenShort(n.createdAt)}</span>
+                    <span className="notification-time">{formatNotificationWhen(n.createdAt)}</span>
                   </div>
-                  <p className="notification-body">{n.body || ""}</p>
+                  <p className="notification-body">{formatNotificationBody(n.body || "")}</p>
                 </button>
               ))
             )}
@@ -1679,10 +1782,6 @@ function StaffMain({
                   <strong>{activeRequest.requestId || activeRequest.id || "--"}</strong>
                 </div>
                 <div>
-                  <small>Status</small>
-                  <strong>{String(activeRequest.status || "PENDING").toUpperCase()}</strong>
-                </div>
-                <div>
                   <small>Customer</small>
                   <strong>{activeRequest.householderName || activeRequest.customer || "Customer"}</strong>
                 </div>
@@ -1693,6 +1792,10 @@ function StaffMain({
                 <div>
                   <small>Schedule</small>
                   <strong>{formatSchedule(activeRequest)}</strong>
+                </div>
+                <div>
+                  <small>Booked at</small>
+                  <strong>{formatBookedAt(activeRequest)}</strong>
                 </div>
                 <div>
                   <small>Address</small>
@@ -1845,12 +1948,12 @@ function StaffMain({
                   <small>Title</small>
                   <strong>{activeNotification.title || "Notification"}</strong>
                 </div>
-                <div>
-                  <small>Time</small>
-                  <strong>
-                    {activeNotification.createdAt ? formatWhenShort(activeNotification.createdAt) : "--"}
-                  </strong>
-                </div>
+                  <div>
+                    <small>Time</small>
+                    <strong>
+                      {activeNotification.createdAt ? formatNotificationWhen(activeNotification.createdAt) : "--"}
+                    </strong>
+                  </div>
                 {activeNotification.requestId && (
                   <div className="full">
                     <small>Request ID</small>
@@ -1859,7 +1962,9 @@ function StaffMain({
                 )}
                 <div className="full">
                   <small>Message</small>
-                  <strong>{activeNotification.body || activeNotification.message || "—"}</strong>
+                  <strong>
+                    {formatNotificationBody(activeNotification.body || activeNotification.message || "—")}
+                  </strong>
                 </div>
               </div>
             </div>
@@ -1895,12 +2000,14 @@ function StaffMain({
                 </div>
                 <div>
                   <small>Time</small>
-                  <strong>{activeTimelineItem.when ? formatWhenShort(activeTimelineItem.when) : "--"}</strong>
+                  <strong>
+                    {activeTimelineItem.when ? formatNotificationWhen(activeTimelineItem.when) : "--"}
+                  </strong>
                 </div>
                 {activeTimelineItem.detail && (
                   <div className="full">
                     <small>Details</small>
-                    <strong>{activeTimelineItem.detail}</strong>
+                    <strong>{formatNotificationBody(activeTimelineItem.detail)}</strong>
                   </div>
                 )}
               </div>
@@ -2381,10 +2488,10 @@ function StaffMain({
                     <div className="timeline-header">
                       <strong>{entry.title}</strong>
                       <span className="muted tiny">
-                        {entry.when ? formatWhenShort(entry.when) : "--"}
+                        {entry.when ? formatNotificationWhen(entry.when) : "--"}
                       </span>
                     </div>
-                    <p className="timeline-body">{entry.detail || "—"}</p>
+                    <p className="timeline-body">{formatNotificationBody(entry.detail || "—")}</p>
                   </div>
                 </button>
               ))}

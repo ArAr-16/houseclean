@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { useCustomerNotifications, useCustomerServiceRequests } from "./customerData";
@@ -317,6 +317,38 @@ function CustomerRequestsInner({
       year: "numeric",
       month: "short",
       day: "2-digit"
+    });
+    const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  };
+
+  const formatBookedAt = (req) => {
+    const raw =
+      req?.createdAt ??
+      req?.timestamp ??
+      req?.requestedAt ??
+      req?.requestCreatedAt ??
+      req?.created_at ??
+      "";
+    if (!raw) return "--";
+    if (typeof raw?.toDate === "function") {
+      const dateObj = raw.toDate();
+      const dateLabel = dateObj.toLocaleDateString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      });
+      const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return `${dateLabel} • ${timeLabel}`;
+    }
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return String(raw);
+    const dateLabel = parsed.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
     });
     const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     return `${dateLabel} • ${timeLabel}`;
@@ -716,18 +748,6 @@ function CustomerRequestsInner({
           </div>
         </div>
 
-        <div className="filters filters--compact">
-          <div className="filter-search">
-            <i className="fas fa-search" aria-hidden="true"></i>
-            <input
-              type="text"
-              placeholder="Search service, staff, or request ID"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              aria-label="Search requests"
-            />
-          </div>
-        </div>
         <div className="request-tabs" role="tablist" aria-label="Request status">
           {(() => {
             const term = String(searchTerm || "").trim().toLowerCase();
@@ -961,6 +981,10 @@ function CustomerRequestsInner({
               <div>
                 <small>Schedule</small>
                 <strong>{formatSchedule(activeRequest)}</strong>
+              </div>
+              <div>
+                <small>Booked at</small>
+                <strong>{formatBookedAt(activeRequest)}</strong>
               </div>
               <div>
                 <small>Address</small>
@@ -1270,3 +1294,7 @@ function CustomerRequestsInner({
     </>
   );
 }
+
+
+
+

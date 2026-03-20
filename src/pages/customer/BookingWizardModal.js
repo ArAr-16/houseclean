@@ -169,6 +169,7 @@ function BookingWizardModal({
   const [activeProfile, setActiveProfile] = useState(null);
   const [activeProfileContext, setActiveProfileContext] = useState("");
   const [skillsPopoverId, setSkillsPopoverId] = useState("");
+  const autoCancelRef = React.useRef(new Set());
 
   const normalizedServiceOptions = useMemo(() => {
     return (serviceOptions || []).map((opt) => {
@@ -372,6 +373,17 @@ function BookingWizardModal({
     return { datePart, minutes: hh * 60 + mm };
   };
 
+  const getRequestStartMs = (req) => {
+    if (!req) return 0;
+    const raw =
+      req.startDate ||
+      req.startAt ||
+      (req.date && req.time ? `${req.date}T${req.time}` : req.date || "") ||
+      "";
+    const parsed = Date.parse(String(raw));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
   const formatLocalDateTime = (date) => {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
     const pad = (value) => String(value).padStart(2, "0");
@@ -519,6 +531,35 @@ function BookingWizardModal({
     );
     return () => stop();
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!uid) return;
+    const now = Date.now();
+    const graceMs = 3 * 24 * 60 * 60 * 1000;
+    (serviceRequests || []).forEach((req) => {
+      const requestId = String(req?.requestId || req?.id || "").trim();
+      if (!requestId) return;
+      if (String(req?.householderId || "") !== String(uid)) return;
+      const statusLower = String(req?.status || "").toLowerCase();
+      if (statusLower.includes("completed")) return;
+      if (statusLower.includes("cancel")) return;
+      if (statusLower.includes("declin")) return;
+      const startMs = getRequestStartMs(req);
+      if (!startMs) return;
+      if (now - startMs <= graceMs) return;
+      if (autoCancelRef.current.has(requestId)) return;
+      autoCancelRef.current.add(requestId);
+      rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${requestId}`), {
+        status: "CANCELLED",
+        cancelledAt: rtdbServerTimestamp(),
+        cancelledById: "system",
+        cancelledByName: "System",
+        cancelReason: "Auto-cancelled after 3 days past schedule.",
+        updatedAt: rtdbServerTimestamp()
+      }).catch(() => {});
+    });
+  }, [open, uid, serviceRequests, getRequestStartMs]);
 
   useEffect(() => {
     if (!open) return;
@@ -715,7 +756,7 @@ function BookingWizardModal({
         const startRaw =
           req.startDate ||
           req.startAt ||
-          (req.date && req.time ? `${req.date}T${req.time}` : "") ||
+          (req.date && req.time ? `${req.date} ● ${req.time}` : "") ||
           "";
         const parsed = parseDateTimeLocal(startRaw);
         if (!parsed || parsed.datePart !== target.datePart) return false;
@@ -726,7 +767,7 @@ function BookingWizardModal({
         const startRaw =
           req.startDate ||
           req.startAt ||
-          (req.date && req.time ? `${req.date}T${req.time}` : "") ||
+          (req.date && req.time ? `${req.date} ● ${req.time}` : "") ||
           "";
         const parsed = parseDateTimeLocal(startRaw);
         if (!parsed) return false;
@@ -734,6 +775,7 @@ function BookingWizardModal({
         const reqEnd = parsed.minutes + reqDuration * 60;
         return parsed.minutes < targetEnd && reqEnd > target.minutes;
       });
+      const hasSameDayBooking = requestsToday.length > 0;
 
       const availableDays = Array.isArray(hk.availabilityDays) ? hk.availabilityDays : [];
       const allowedDays =
@@ -748,13 +790,14 @@ function BookingWizardModal({
         staffStart == null || staffEnd == null ? true : target.minutes >= staffStart && targetEnd <= staffEnd;
       const matchesAvailability = dayOk && timeOk;
 
-      const available = matchesService && matchesAvailability && !hasOverlap;
+      const available = matchesService && matchesAvailability && !hasOverlap && !hasSameDayBooking;
       return {
         ...hk,
         available,
         matchesService,
         matchesAvailability,
         hasOverlap,
+        hasSameDayBooking,
         bookingsToday: requestsToday.length
       };
     });
@@ -1481,9 +1524,11 @@ function BookingWizardModal({
                                   ? "Availability mismatch"
                                   : !hk.matchesService
                                     ? "Service mismatch"
-                                    : hk.hasOverlap
-                                      ? "Booked during this time"
-                                      : "Unavailable";
+                                    : hk.hasSameDayBooking
+                                      ? "Already booked that day"
+                                      : hk.hasOverlap
+                                        ? "Booked during this time"
+                                        : "Unavailable";
                                     return (
                                       <div key={hk.id} className="preferred-card hk-card unavailable">
                                     <div className="preferred-card__top centered">

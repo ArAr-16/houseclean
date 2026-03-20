@@ -2467,6 +2467,21 @@ html.dark-mode .input-icon .icon-btn.ghost {
   border: 1px solid #e6ecf5;
   border-radius: 10px;
   background: #fdfefe;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.notification-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(15, 46, 77, 0.08);
+}
+.notification-item.unread {
+  border-color: #93c5fd;
+  background: #eef4ff;
+  box-shadow: 0 12px 24px rgba(47, 107, 255, 0.12);
+}
+.notification-item.read {
+  opacity: 0.92;
 }
 .notification-top {
   display: flex;
@@ -2475,6 +2490,46 @@ html.dark-mode .input-icon .icon-btn.ghost {
   gap: 10px;
 }
 .notification-title { font-weight: 700; }
+.notification-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f3d73;
+  background: #edf3ff;
+  border: 1px solid #cddfff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.notification-time.modal-time {
+  display: inline-flex;
+  align-self: center;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 6px auto 12px;
+}
+.notification-body {
+  margin: 6px 0 0;
+  color: #5b6b86;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notif-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.notif-toolbar .pill-select {
+  border-radius: 999px;
+  padding: 8px 12px;
+  border: 1px solid #d4dce8;
+  background: #f7faff;
+  color: #1f365f;
+  font-weight: 700;
+}
 
 .success-note {
   color: #0f5132;
@@ -2624,6 +2679,13 @@ html.dark-mode .input-icon .icon-btn.ghost {
   color: #374151;
 }
 
+.track-modal__notes input {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
 .feedback-comment {
   margin-top: 6px;
   font-style: italic;
@@ -2634,6 +2696,7 @@ html.dark-mode .input-icon .icon-btn.ghost {
   display: flex;
   justify-content: flex-start;
   margin-top: 10px;
+  gap: 12px;
 }
 
 .feedback-modal {

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useEffect, useMemo, useState } from "react";
+﻿﻿import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { useCustomerServiceRequests } from "./customerData";
@@ -118,7 +118,7 @@ function buildInvoice(request, ctx) {
     location ? `Location: ${location}` : null,
     "",
     `Service: ${service}`,
-    `Schedule: ${when || "â€”"}`,
+    `Schedule: ${when || "—"}`,
     `Assigned staff: ${staff}`,
     "",
     `Total: ${total}`,
@@ -183,6 +183,38 @@ function formatPaymentMethodLabel(value) {
   return value ? String(value) : "--";
 }
 
+function formatBookedAt(req) {
+  const raw =
+    req?.createdAt ??
+    req?.timestamp ??
+    req?.requestedAt ??
+    req?.requestCreatedAt ??
+    req?.created_at ??
+    "";
+  if (!raw) return "--";
+  if (typeof raw?.toDate === "function") {
+    const dateObj = raw.toDate();
+    const dateLabel = dateObj.toLocaleDateString([], {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeLabel = dateObj.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return `${dateLabel} • ${timeLabel}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return String(raw);
+  const dateLabel = parsed.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+  const timeLabel = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel} • ${timeLabel}`;
+}
+
 function CustomerPayments() {
   const paymentMethods = useMemo(
     () => [
@@ -212,17 +244,29 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
   const location = useLocation();
   const navigate = useNavigate();
   const { requests, loading } = useCustomerServiceRequests(ctx.authUser?.uid);
-  const payable = (requests || []).filter((r) => {
+  const pending = (requests || []).filter((r) => {
     const status = String(r.status || "").toUpperCase();
-    if (["PENDING_PAYMENT", "RESERVED", "CONFIRMED", "ACCEPTED"].includes(status)) return true;
-    if (status === "PENDING" && String(r.paymentMethod || "").trim()) return true;
+    const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(r.paidAt || r.cashReceivedAt);
+    const hasMethod = Boolean(String(r.paymentMethod || r.paidVia || "").trim());
+    if (status === "PENDING_PAYMENT" || status === "RESERVED") return true;
+    if (status === "PENDING" && hasMethod && !paid) return true;
     return false;
+  });
+  const acceptedPaid = (requests || []).filter((r) => {
+    const status = String(r.status || "").toUpperCase();
+    const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+    const paid = paymentStatus === "PAID" || Boolean(r.paidAt || r.cashReceivedAt);
+    if (status === "COMPLETED") return false;
+    if (status === "PENDING_PAYMENT" || status === "RESERVED") return false;
+    return paid || ["CONFIRMED", "ACCEPTED"].includes(status);
   });
   const completed = (requests || []).filter((r) => String(r.status || "").toUpperCase() === "COMPLETED");
   const [txnByRequest, setTxnByRequest] = useState({});
   const [savingId, setSavingId] = useState("");
   const [activePayment, setActivePayment] = useState(null);
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [billingTab, setBillingTab] = useState("pending");
   const [refundTarget, setRefundTarget] = useState(null);
   const [refundReason, setRefundReason] = useState("");
   const [refundError, setRefundError] = useState("");
@@ -235,6 +279,8 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     activeMethod === "CASH_ON_HAND" &&
     !["RESERVED", "PAID"].includes(activePaymentStatus) &&
     activeStatus !== "COMPLETED";
+  const visibleBilling =
+    billingTab === "pending" ? pending : billingTab === "accepted" ? acceptedPaid : completed;
 
   useEffect(() => {
     const targetId = String(location?.state?.openPaymentFor || "").trim();
@@ -476,199 +522,210 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
           <div className="muted small">No requests found.</div>
         ) : (
           <>
-            <div className="muted small">Pay pending requests below to confirm your booking.</div>
+            {billingTab === "pending" && (
+              <div className="muted small">Pay pending requests below to confirm your booking.</div>
+            )}
+            {billingTab === "accepted" && (
+              <div className="muted small">Paid bookings ready for invoices and receipts.</div>
+            )}
+            {billingTab === "completed" && (
+              <div className="muted small">Completed services with available receipts.</div>
+            )}
+            <div className="tab-row">
+              <button
+                className={`btn pill ghost ${billingTab === "pending" ? "active" : ""}`}
+                type="button"
+                onClick={() => setBillingTab("pending")}
+              >
+                Pending
+              </button>
+              <button
+                className={`btn pill ghost ${billingTab === "accepted" ? "active" : ""}`}
+                type="button"
+                onClick={() => setBillingTab("accepted")}
+              >
+                Accepted
+              </button>
+              <button
+                className={`btn pill ghost ${billingTab === "completed" ? "active" : ""}`}
+                type="button"
+                onClick={() => setBillingTab("completed")}
+              >
+                Completed
+              </button>
+            </div>            <div className="billing-list">
+              {visibleBilling.length === 0 ? (
+                <div className="muted small">No requests in this tab.</div>
+              ) : (
+                visibleBilling.slice(0, 12).map((r) => {
+                  const status = String(r.status || "").toUpperCase();
+                  const paymentStatus = String(r.paymentStatus || "").toUpperCase();
+                  const paid = paymentStatus === "PAID" || Boolean(r.paidAt || r.cashReceivedAt);
+                  const isPendingPayment = status === "PENDING_PAYMENT";
+                  const isReserved = status === "RESERVED";
+                  const isConfirmed = paid || status === "CONFIRMED" || status === "ACCEPTED";
+                  const statusLabel = isPendingPayment
+                    ? "Pending payment"
+                    : isReserved
+                      ? "Reserved"
+                      : isConfirmed
+                        ? "Paid"
+                        : status === "COMPLETED"
+                          ? "Completed"
+                          : "—";
+                  const statusDetail = isPendingPayment
+                    ? "Complete payment to confirm your booking."
+                    : isReserved
+                      ? "Pay on arrival. Staff will confirm payment."
+                      : isConfirmed
+                        ? "Payment confirmed. Staff will proceed with the service."
+                        : "";
 
-            <div className="billing-list">
-              {payable.slice(0, 12).map((r) => {
-                const status = String(r.status || "").toUpperCase();
-
-                const isPendingPayment = status === "PENDING_PAYMENT";
-                const isReserved = status === "RESERVED";
-                const isConfirmed = status === "CONFIRMED" || status === "ACCEPTED";
-                const statusLabel = isPendingPayment
-                  ? "Pending payment"
-                  : isReserved
-                    ? "Reserved"
-                    : isConfirmed
-                      ? "Paid"
-                      : "—";
-                const statusDetail = isPendingPayment
-                  ? "Complete payment to confirm your booking."
-                  : isReserved
-                    ? "Pay on arrival. Staff will confirm payment."
-                    : isConfirmed
-                      ? "Payment confirmed. Staff will proceed with the service."
-                      : "";
-
-                return (
-                  <div
-                    key={r.requestId || r.id}
-                    className="billing-row clickable"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setActivePayment(r)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setActivePayment(r);
-                      }
-                    }}
-                  >
-                    <div className="billing-meta">
-                      <strong>{r.serviceType || "Service"}</strong>
-                      <span className="muted small">
-                        {formatDateTimeLabel(r.startDate, r.date, r.time)}
-                      </span>
+                  return (
+                    <div
+                      key={r.requestId || r.id}
+                      className={`billing-row ${status === "COMPLETED" ? "done" : ""} clickable`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setActivePayment(r)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setActivePayment(r);
+                        }
+                      }}
+                    >
+                      <div className="billing-meta">
+                        <strong>
+                          {r.serviceType || "Service"}
+                          {status === "COMPLETED" ? "" : ""}
+                        </strong>
+                        <span className="muted small">
+                          {formatDateTimeLabel(r.startDate, r.date, r.time)}
+                        </span>
+                      </div>
+                      <div className="billing-actions"></div>
+                      <div className="billing-status">
+                        <span
+                          className={`pill soft ${
+                            isPendingPayment ? "amber" : isReserved ? "blue" : isConfirmed ? "green" : ""
+                          }`}
+                        >
+                          {statusLabel}
+                        </span>
+                        {statusDetail && <span className="muted small">{statusDetail}</span>}
+                      </div>
                     </div>
-                    <div className="billing-actions">
-                    </div>
-                    <div className="billing-status">
-                      <span className={`pill soft ${isPendingPayment ? "amber" : isReserved ? "blue" : isConfirmed ? "green" : ""}`}>
-                        {statusLabel}
-                      </span>
-                      {statusDetail && <span className="muted small">{statusDetail}</span>}
-                    </div>
-                  </div>
-                );
-              })}
-              {completed.slice(0, 8).map((r) => (
-                <div
-                  key={r.requestId || r.id}
-                  className="billing-row done clickable"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setActivePayment(r)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setActivePayment(r);
-                    }
-                  }}
-                >
-                  <div className="billing-meta">
-                    <strong>{r.serviceType || "Service"} (Completed)</strong>
-                    <span className="muted small">
-                      {formatDateTimeLabel(r.startDate, r.date, r.time)}
-                    </span>
-                  </div>
-                  <div className="billing-actions">
-
-                  </div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
           </>
         )}
       </section>
 
       {activePayment && (
-        <div className="share-modal payment-modal">
-          <div className="share-modal__backdrop" onClick={() => setActivePayment(null)} />
-          <div className="share-modal__panel payment-modal__panel" role="dialog" aria-modal="true" aria-label="Request details">
-            <div className="share-modal__header">
-              <h4>Request details</h4>
-              <button
-                className="icon-btn share-close"
-                type="button"
-                onClick={() => setActivePayment(null)}
-                aria-label="Close details"
-              >
-                <i className="fas fa-times"></i>
-              </button>
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setActivePayment(null)} />
+          <div
+            className="customer-modal__panel track-modal payment-modal__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Payment details"
+          >
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-credit-card"></i>
             </div>
-            <div className="share-modal__body">
-              <div className="payment-modal__meta">
+            <h4>Payment details</h4>
+            <div className={`status-pill status-${normalizeStatus(activePayment.status).toLowerCase()}`}>
+              {normalizeStatus(activePayment.status)}
+            </div>
+            <div className="track-modal__grid">
+              <div>
+                <small>Request ID</small>
+                <strong>{activePayment.requestId || activePayment.id || "--"}</strong>
+              </div>
+              <div>
+                <small>Service</small>
                 <strong>{activePayment.serviceType || "Service"}</strong>
-                <span className="muted small">
-                  {formatDateTimeLabel(activePayment.startDate, activePayment.date, activePayment.time)}
-                </span>
-                <span className="pill stat">{moneyLabel(activePayment.totalPrice)}</span>
               </div>
-              <div className="payment-modal__details">
-                <div>
-                  <span className="muted tiny">Request ID</span>
-                  <strong>{activePayment.requestId || activePayment.id || "--"}</strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Status</span>
-                  <strong>{String(activePayment.status || "PENDING").toUpperCase()}</strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Payment</span>
-                  <strong>{formatPaymentMethodLabel(activePayment.paymentMethod || activePayment.paidVia)}</strong>
-                </div>
-                <div>
-                  <span className="muted tiny">Assigned staff</span>
-                  <strong>{activePayment.housekeeperName || "Unassigned"}</strong>
-                </div>
+              <div>
+                <small>Schedule</small>
+                <strong>{formatDateTimeLabel(activePayment.startDate, activePayment.date, activePayment.time)}</strong>
               </div>
-              <div className="payment-modal__actions">
-                <button
-                  className="btn pill ghost"
-                  type="button"
-                  onClick={() =>
-                    downloadFile(
-                      `invoice_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
-                      buildInvoice(activePayment, ctx)
-                    )
+              <div>
+                <small>Booked at</small>
+                <strong>{formatBookedAt(activePayment)}</strong>
+              </div>
+              <div>
+                <small>Total</small>
+                <strong>{moneyLabel(activePayment.totalPrice)}</strong>
+              </div>
+              <div>
+                <small>Payment</small>
+                <strong>{formatPaymentMethodLabel(activePayment.paymentMethod || activePayment.paidVia)}</strong>
+              </div>
+              <div>
+                <small>Assigned staff</small>
+                <strong>{activePayment.housekeeperName || "Unassigned"}</strong>
+              </div>
+            </div>
+            {activeIsPendingPayment && String(activePayment.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
+              <div className="track-modal__notes">
+                <small>QR payment</small>
+                <p>Enter the transaction ID from your QR payment.</p>
+                <input
+                  type="text"
+                  placeholder="Transaction ID"
+                  value={txnByRequest[String(activePayment.id || activePayment.requestId || "")] || ""}
+                  onChange={(e) =>
+                    setTxnByRequest((prev) => ({
+                      ...prev,
+                      [String(activePayment.id || activePayment.requestId || "")]: e.target.value
+                    }))
                   }
-                >
-                  Download invoice
-                </button>
-                {String(activePayment.status || "").toUpperCase() === "COMPLETED" && (
-                  <button
-                    className="btn pill ghost"
-                    type="button"
-                    onClick={() =>
-                      downloadFile(
-                        `receipt_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
-                        buildReceipt(activePayment, ctx)
-                      )
-                    }
-                  >
-                    Receipt
-                  </button>
-                )}
-                {canRequestRefund(activePayment) && (
-                  <button
-                    className="btn pill ghost"
-                    type="button"
-                    onClick={() => openRefundModal(activePayment)}
-                  >
-                    Request refund
-                  </button>
-                )}
-              </div>
-              {activeIsPendingPayment && String(activePayment.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
-                <div className="payment-inline">
-                  <p className="muted small">Enter the transaction ID from your QR payment.</p>
-                  <input
-                    type="text"
-                    placeholder="Transaction ID"
-                    value={txnByRequest[String(activePayment.id || activePayment.requestId || "")] || ""}
-                    onChange={(e) =>
-                      setTxnByRequest((prev) => ({
-                        ...prev,
-                        [String(activePayment.id || activePayment.requestId || "")]: e.target.value
-                      }))
-                    }
-                  />
-                  <button
+                />
+                                  <button
                     className="btn pill primary"
                     type="button"
-                    disabled={!String(txnByRequest[String(activePayment.id || activePayment.requestId || "")] || "").trim() || savingId === String(activePayment.id || activePayment.requestId || "")}
+                    disabled={
+                      !String(txnByRequest[String(activePayment.id || activePayment.requestId || "")] || "").trim() ||
+                      savingId === String(activePayment.id || activePayment.requestId || "")
+                    }
                     onClick={() => {
                       handleSubmitQr(activePayment);
                       setActivePayment(null);
                     }}
                   >
-                    {savingId === String(activePayment.id || activePayment.requestId || "") ? "Saving..." : "Submit QR Payment"}
+                    {savingId === String(activePayment.id || activePayment.requestId || "")
+                      ? "Saving..."
+                      : "Submit QR Payment"}
                   </button>
-                </div>
-              )}
-              {canConfirmCash && (
-                <div className="payment-inline">
-                  <p className="muted small">Confirm that you will pay in cash when the staff arrives.</p>
+                {/* <div className="track-modal__actions">
+                  <button
+                    className="btn pill primary"
+                    type="button"
+                    disabled={
+                      !String(txnByRequest[String(activePayment.id || activePayment.requestId || "")] || "").trim() ||
+                      savingId === String(activePayment.id || activePayment.requestId || "")
+                    }
+                    onClick={() => {
+                      handleSubmitQr(activePayment);
+                      setActivePayment(null);
+                    }}
+                  >
+                    {savingId === String(activePayment.id || activePayment.requestId || "")
+                      ? "Saving..."
+                      : "Submit QR Payment"}
+                  </button>
+                </div> */}
+              </div>
+            )}
+            {canConfirmCash && (
+              <div className="track-modal__notes">
+                <small>Cash on hand</small>
+                <p>Confirm that you will pay in cash when the staff arrives.</p>
+                <div className="track-modal__actions">
                   <button
                     className="btn pill primary"
                     type="button"
@@ -678,10 +735,54 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
                       setActivePayment(null);
                     }}
                   >
-                    {savingId === String(activePayment.id || activePayment.requestId || "") ? "Saving..." : "Confirm Cash on Hand"}
+                    {savingId === String(activePayment.id || activePayment.requestId || "")
+                      ? "Saving..."
+                      : "Confirm Cash on Hand"}
                   </button>
                 </div>
+              </div>
+            )}
+            
+            <div className="customer-modal__actions">
+              {String(activePayment.status || "").toUpperCase() === "COMPLETED" && (
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() =>
+                    downloadFile(
+                      `receipt_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
+                      buildReceipt(activePayment, ctx)
+                    )
+                  }
+                >
+                  Receipt
+                </button>
               )}
+              {canRequestRefund(activePayment) && (
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() => openRefundModal(activePayment)}
+                >
+                  Request refund
+                </button>
+              )}
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() =>
+                  downloadFile(
+                    `invoice_${String(activePayment.requestId || activePayment.id).slice(-8)}.txt`,
+                    buildInvoice(activePayment, ctx)
+                  )
+                }
+              >
+                Download invoice
+              </button>
+              <button className="btn pill ghost" type="button" onClick={() => setActivePayment(null)}>
+                Close
+              </button>
+                            
             </div>
           </div>
         </div>
@@ -733,3 +834,8 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     </>
   );
 }
+
+
+
+
+
