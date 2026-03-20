@@ -7,8 +7,7 @@ function StaffDashboard() {
       visibleSections={{
         dashboard: true,
         tasks: true,
-        notifications: true,
-        requests: true
+        requests: false
       }}
     />
   );

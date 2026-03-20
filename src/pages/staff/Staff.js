@@ -707,8 +707,14 @@ function Staff({ visibleSections }) {
     await rtdbUpdate(rtdbRef(rtdb), updates);
   };
 
+  const markNotificationRead = async (notifId) => {
+    const uid = auth.currentUser?.uid || profile?.id || "";
+    if (!uid || !notifId) return;
+    await rtdbUpdate(rtdbRef(rtdb, `UserNotifications/${uid}/${notifId}`), { read: true });
+  };
+
   const handleNotificationsClick = () => {
-    document.getElementById("staff-notifications")?.scrollIntoView({ behavior: "smooth" });
+    navigate("/staff/notifications");
   };
 
   const handleScrollToSettings = () => {
@@ -728,6 +734,7 @@ function Staff({ visibleSections }) {
 
   const currentUserId = auth.currentUser?.uid || "";
   const handleGoToRequests = () => navigate("/staff/requests");
+  const handleGoToNotifications = () => navigate("/staff/notifications");
   const handleGoToSettings = () => {
     document.getElementById("staff-settings")?.scrollIntoView({ behavior: "smooth" });
   };
@@ -781,6 +788,7 @@ function Staff({ visibleSections }) {
         avatarUrl={avatarUrl}
         initials={initials}
         profile={profile}
+        unreadCount={(notifications || []).filter((n) => n && n.read !== true).length}
         onNotificationsClick={handleNotificationsClick}
         onScrollToSettings={handleScrollToSettings}
         onToggleTheme={handleToggleTheme}
@@ -815,10 +823,12 @@ function Staff({ visibleSections }) {
           handleComplete={handleComplete}
           handleCashPaymentReceived={handleCashPaymentReceived}
           handleStaffArrived={handleStaffArrived}
+          markNotificationRead={markNotificationRead}
           markAllRead={markAllRead}
           formatWhenShort={formatWhenShort}
           visibleSections={visibleSections}
           onGoToRequests={handleGoToRequests}
+          onGoToNotifications={handleGoToNotifications}
           onGoToSettings={handleGoToSettings}
           staffServiceOptions={STAFF_SERVICE_OPTIONS}
           weekdayOptions={WEEKDAY_OPTIONS}

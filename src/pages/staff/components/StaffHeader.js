@@ -14,6 +14,7 @@ function StaffHeader({
   avatarUrl,
   initials,
   profile,
+  unreadCount = 0,
   onNotificationsClick,
   onScrollToSettings,
   onToggleTheme,
@@ -25,11 +26,12 @@ function StaffHeader({
       <nav className="top-links" />
       <div className="top-actions">
         <button
-          className="icon-btn ghost"
+          className="icon-btn ghost notification-btn"
           aria-label="Notifications"
           onClick={onNotificationsClick}
         >
           <i className="fas fa-bell"></i>
+          {unreadCount > 0 && <span className="notif-dot" aria-hidden="true"></span>}
         </button>
         <div className="mini-profile-wrapper" ref={popoverRef}>
           {(isStaffRole || showGuest) && (

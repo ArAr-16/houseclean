@@ -32,10 +32,12 @@ function StaffMain({
   handleComplete,
   handleCashPaymentReceived,
   handleStaffArrived,
+  markNotificationRead,
   markAllRead,
   formatWhenShort,
   visibleSections = {},
   onGoToRequests,
+  onGoToNotifications,
   onGoToSettings,
   staffServiceOptions = [],
   weekdayOptions = [],
@@ -69,9 +71,55 @@ function StaffMain({
   const [historyTab, setHistoryTab] = React.useState("active");
   const [historyPage, setHistoryPage] = React.useState(1);
   const [archivedHistoryMap, setArchivedHistoryMap] = React.useState({});
+  const getDefaultHistoryRange = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    return { from: fmt(start), to: fmt(end) };
+  };
+  const storedHistoryFilters = (() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("hc_staff_history_filters");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const defaultHistoryRange = getDefaultHistoryRange();
+  const [historyFilterType, setHistoryFilterType] = React.useState(storedHistoryFilters?.filterType || "all");
+  const [historyServiceType, setHistoryServiceType] = React.useState(storedHistoryFilters?.serviceType || "");
+  const [historyFromDate, setHistoryFromDate] = React.useState(
+    storedHistoryFilters?.fromDate || defaultHistoryRange.from
+  );
+  const [historyToDate, setHistoryToDate] = React.useState(
+    storedHistoryFilters?.toDate || defaultHistoryRange.to
+  );
   const [requestTab, setRequestTab] = React.useState("request");
   const [requestSearch, setRequestSearch] = React.useState("");
   const [completedPage, setCompletedPage] = React.useState(1);
+  const [notificationFilter, setNotificationFilter] = React.useState("all");
+  const [activeNotification, setActiveNotification] = React.useState(null);
+  const [showNotificationModal, setShowNotificationModal] = React.useState(false);
+  const [activeTimelineItem, setActiveTimelineItem] = React.useState(null);
+  const [confirmState, setConfirmState] = React.useState({
+    open: false,
+    title: "",
+    message: "",
+    onConfirm: null
+  });
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const payload = {
+      filterType: historyFilterType,
+      serviceType: historyServiceType,
+      fromDate: historyFromDate,
+      toDate: historyToDate
+    };
+    localStorage.setItem("hc_staff_history_filters", JSON.stringify(payload));
+  }, [historyFilterType, historyServiceType, historyFromDate, historyToDate]);
   const [attendanceMonth, setAttendanceMonth] = React.useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
@@ -216,6 +264,20 @@ function StaffMain({
     const list = Array.isArray(profileForm.availabilityDays) ? profileForm.availabilityDays : [];
     const next = list.includes(day) ? list.filter((d) => d !== day) : list.concat(day);
     updateField("availabilityDays", next);
+  };
+
+  const runWithConfirm = (message, action, title = "Confirm action") => {
+    if (typeof action !== "function") return;
+    setConfirmState({
+      open: true,
+      title,
+      message: message || "Are you sure you want to proceed?",
+      onConfirm: action
+    });
+  };
+
+  const closeConfirmModal = () => {
+    setConfirmState((prev) => ({ ...prev, open: false, onConfirm: null }));
   };
 
   React.useEffect(() => {
@@ -366,6 +428,78 @@ function StaffMain({
     return max;
   }, [requestChartData]);
 
+  const dashboardReminders = React.useMemo(() => {
+    const list = [];
+    const visibleRequests = (requests || []).filter((req) => {
+      if (!isHousekeeper) return true;
+      const assignedId = String(req?.housekeeperId || "").trim();
+      return Boolean(currentUserId) && assignedId === currentUserId;
+    });
+    const accepted = visibleRequests.filter(
+      (req) => String(req?.status || "").toLowerCase() === "accepted"
+    );
+    const notArrived = accepted.filter((req) => !req?.staffArrived);
+    const awaitingConfirm = accepted.filter((req) => req?.staffArrived && !req?.customerArrivalConfirmed);
+    const cashPending = accepted.filter((req) => {
+      const method = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+      const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+      return method === "CASH_ON_HAND" && paymentStatus === "RESERVED" && req?.staffArrived;
+    });
+    const ongoing = accepted.filter((req) => {
+      const paymentStatus = String(req?.paymentStatus || "").toUpperCase();
+      const method = String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
+      const cashReserved = method === "CASH_ON_HAND" && paymentStatus === "RESERVED";
+      return Boolean(req?.customerArrivalConfirmed) && !cashReserved;
+    });
+    const pending = visibleRequests.filter((req) => {
+      const status = String(req?.status || "").toLowerCase();
+      return ["pending", "confirmed", "reserved", "pending_payment"].includes(status);
+    });
+
+    if (pending.length) {
+      list.push({
+        key: "pending",
+        label: "Requests waiting for accept/decline",
+        count: pending.length,
+        tone: "amber"
+      });
+    }
+    if (notArrived.length) {
+      list.push({
+        key: "arrival",
+        label: "Accepted jobs need arrival confirmation",
+        count: notArrived.length,
+        tone: "blue"
+      });
+    }
+    if (awaitingConfirm.length) {
+      list.push({
+        key: "confirm",
+        label: "Awaiting customer arrival confirmation",
+        count: awaitingConfirm.length,
+        tone: "amber"
+      });
+    }
+    if (cashPending.length) {
+      list.push({
+        key: "cash",
+        label: "Cash payments to confirm",
+        count: cashPending.length,
+        tone: "amber"
+      });
+    }
+    if (ongoing.length) {
+      list.push({
+        key: "ongoing",
+        label: "Jobs ready to complete",
+        count: ongoing.length,
+        tone: "green"
+      });
+    }
+
+    return list.slice(0, 5);
+  }, [requests, isHousekeeper, currentUserId]);
+
   const getStatusLower = (req) => String(req?.status || "PENDING").toLowerCase();
   const getPaymentMethodKey = (req) => String(req?.paymentMethod || req?.paidVia || "").toUpperCase();
   const getPaymentStatusKey = (req) => String(req?.paymentStatus || "").toUpperCase();
@@ -415,6 +549,164 @@ function StaffMain({
   const historyCurrentPage = Math.min(historyPage, historyTotalPages);
   const historyStart = (historyCurrentPage - 1) * historyPageSize;
   const historyPaged = historyVisible.slice(historyStart, historyStart + historyPageSize);
+
+  const timelineEvents = React.useMemo(() => {
+    const entries = [];
+    const visibleRequests = (requests || []).filter((req) => {
+      if (!isHousekeeper) return true;
+      const assignedId = String(req?.housekeeperId || "").trim();
+      return Boolean(currentUserId) && assignedId === currentUserId;
+    });
+
+    visibleRequests.forEach((req) => {
+      const id = String(req?.id || req?.requestId || "");
+      const serviceLabel = req?.serviceType || req?.service || "Service";
+      const location = req?.location || req?.address || "";
+      const job = location ? `${serviceLabel} • ${location}` : serviceLabel;
+
+      const createdAt = Number(req?.createdAt || req?.timestamp || 0) || 0;
+      if (createdAt) {
+        entries.push({
+          id: `${id}_created`,
+          requestId: id,
+          when: createdAt,
+          title: "Request created",
+          detail: job,
+          type: "request",
+          serviceType: serviceLabel
+        });
+      }
+
+      const acceptedAt = Number(req?.acceptedAt || req?.confirmedAt || 0) || 0;
+      if (acceptedAt) {
+        entries.push({
+          id: `${id}_accepted`,
+          requestId: id,
+          when: acceptedAt,
+          title: "Request accepted",
+          detail: job,
+          type: "request",
+          serviceType: serviceLabel
+        });
+      }
+
+      const declinedAt = Number(req?.declinedAt || 0) || 0;
+      const statusLower = String(req?.status || "").toLowerCase();
+      if (declinedAt || statusLower.includes("declin")) {
+        const when = declinedAt || Number(req?.updatedAt || 0) || 0;
+        if (when) {
+          entries.push({
+            id: `${id}_declined`,
+            requestId: id,
+            when,
+            title: "Request declined",
+            detail: job,
+            type: "request",
+            serviceType: serviceLabel
+          });
+        }
+      }
+
+      const arrivedAt = Number(req?.staffArrivedAt || 0) || 0;
+      if (arrivedAt) {
+        entries.push({
+          id: `${id}_arrived`,
+          requestId: id,
+          when: arrivedAt,
+          title: "Staff arrived",
+          detail: job,
+          type: "attendance",
+          serviceType: serviceLabel
+        });
+      }
+
+      const customerConfirmedAt = Number(req?.customerArrivalConfirmedAt || 0) || 0;
+      if (customerConfirmedAt) {
+        entries.push({
+          id: `${id}_confirmed`,
+          requestId: id,
+          when: customerConfirmedAt,
+          title: "Customer confirmed arrival",
+          detail: job,
+          type: "attendance",
+          serviceType: serviceLabel
+        });
+      }
+
+      const cashReceivedAt = Number(req?.cashReceivedAt || 0) || 0;
+      const paidAt = Number(req?.paidAt || 0) || 0;
+      const paymentAt = cashReceivedAt || paidAt;
+      if (paymentAt) {
+        const method = formatPaymentMethodLabel(req?.paymentMethod || req?.paidVia || "");
+        entries.push({
+          id: `${id}_paid`,
+          requestId: id,
+          when: paymentAt,
+          title: "Payment received",
+          detail: `${job} • ${method}`,
+          type: "payment",
+          serviceType: serviceLabel
+        });
+      }
+
+      const completedAt = Number(req?.completedAt || 0) || 0;
+      if (completedAt) {
+        entries.push({
+          id: `${id}_completed`,
+          requestId: id,
+          when: completedAt,
+          title: "Service completed",
+          detail: job,
+          type: "completion",
+          serviceType: serviceLabel
+        });
+      }
+    });
+
+    (notifications || []).forEach((n) => {
+      const createdAt = Number(n?.createdAt || 0) || 0;
+      if (!createdAt) return;
+      entries.push({
+        id: `notif_${n.id}`,
+        notificationId: n.id,
+        when: createdAt,
+        title: n.title || "Notification",
+        detail: n.body || "",
+        type: "notification",
+        serviceType: ""
+      });
+    });
+
+    const seen = new Set();
+    const unique = entries.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+
+    unique.sort((a, b) => (Number(b.when || 0) || 0) - (Number(a.when || 0) || 0));
+    return unique;
+  }, [requests, notifications, isHousekeeper, currentUserId, formatPaymentMethodLabel]);
+
+  const timelineFiltered = React.useMemo(() => {
+    const filterType = String(historyFilterType || "all").toLowerCase();
+    const serviceFilter = String(historyServiceType || "").trim().toLowerCase();
+    const from = historyFromDate ? new Date(historyFromDate) : null;
+    const to = historyToDate ? new Date(historyToDate) : null;
+    const toEnd = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999) : null;
+    return timelineEvents.filter((entry) => {
+      if (filterType !== "all" && entry.type !== filterType) return false;
+      if (serviceFilter && String(entry.serviceType || "").toLowerCase() !== serviceFilter) return false;
+      if (from && Number(entry.when || 0) < from.getTime()) return false;
+      if (toEnd && Number(entry.when || 0) > toEnd.getTime()) return false;
+      return true;
+    });
+  }, [timelineEvents, historyFilterType, historyServiceType, historyFromDate, historyToDate]);
+
+  const timelineTotalPages = Math.max(1, Math.ceil(timelineFiltered.length / historyPageSize));
+  const timelineCurrentPage = Math.min(historyPage, timelineTotalPages);
+  const timelineStart = (timelineCurrentPage - 1) * historyPageSize;
+  const timelinePaged = timelineFiltered.slice(timelineStart, timelineStart + historyPageSize);
 
   const attendanceCalendar = React.useMemo(() => {
     const { year, month } = attendanceMonth;
@@ -524,6 +816,17 @@ function StaffMain({
 
   const closeCompleteConfirm = () => {
     setShowCompleteConfirm(false);
+  };
+
+  const openNotificationModal = (notif) => {
+    if (!notif) return;
+    setActiveNotification(notif);
+    setShowNotificationModal(true);
+  };
+
+  const closeNotificationModal = () => {
+    setActiveNotification(null);
+    setShowNotificationModal(false);
   };
 
   const openCashConfirm = (req) => {
@@ -818,21 +1121,41 @@ function StaffMain({
             </div>
           </div>
 
-          <div className="dashboard-actions">
-            <button
-              className="btn primary"
-              type="button"
-              onClick={() => {
-                if (typeof onGoToRequests === "function") onGoToRequests();
-                else document.getElementById("requests")?.scrollIntoView({ behavior: "smooth" });
-              }}
-            >
-              View requests
-            </button>
+          <div className="dashboard-reminders">
+            <div className="dashboard-reminders__header">
+              <div>
+                <p className="eyebrow">Reminders</p>
+                <h4>What needs attention</h4>
+              </div>
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() => {
+                  if (typeof onGoToRequests === "function") onGoToRequests();
+                }}
+              >
+                View requests
+              </button>
+            </div>
+            <div className="dashboard-reminders__list">
+              {dashboardReminders.length === 0 ? (
+                <div className="dashboard-reminder empty">You are all caught up.</div>
+              ) : (
+                dashboardReminders.map((item) => (
+                  <div key={item.key} className={`dashboard-reminder ${item.tone}`}>
+                    <span>{item.label}</span>
+                    <strong>{item.count}</strong>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
+
+          <div className="dashboard-actions">
+          </div>
+
         </section>
       )}
-
       {isVisible("requests") && (
         <section className="panel card list-board" id="requests">
           <div className="panel-header">
@@ -971,26 +1294,29 @@ function StaffMain({
                               <span className="chip">{formatPaymentMethodLabel(getPaymentMethodKey(r)) || "UNPAID"}</span>
                               </div>
                               <div className="row-meta actions">
-                                {isPending && (
-                                  <button
-                                    className="btn ghost"
-                                    type="button"
-                                    disabled={!canDecline}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
+                                <button
+                                  className="btn ghost"
+                                  type="button"
+                                  disabled={!canDecline}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    runWithConfirm("Decline this request?", () => {
                                       handleRequestAction(r, "DECLINED");
-                                    }}
-                                  >
-                                    Decline
-                                  </button>
-                                )}
+                                    });
+                                  }}
+                                >
+                                  Decline
+                                </button>
                                 <button
                                   className="btn primary"
                                   type="button"
                                   disabled={!(canConfirm || canAccept)}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED");
+                                    runWithConfirm(
+                                      canConfirm ? "Confirm this request?" : "Accept this request?",
+                                      () => handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED")
+                                    );
                                   }}
                                 >
                                   {canConfirm ? "Confirm" : "Accept"}
@@ -1070,8 +1396,10 @@ function StaffMain({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      triggerArrivedClick(r);
-                                      handleStaffArrived?.(r);
+                                      runWithConfirm("Mark staff arrival for this request?", () => {
+                                        triggerArrivedClick(r);
+                                        handleStaffArrived?.(r);
+                                      });
                                     }}
                                   >
                                     Mark arrived
@@ -1215,7 +1543,9 @@ function StaffMain({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                archiveHistoryItem(h);
+                                runWithConfirm("Archive this completed request?", () => {
+                                  archiveHistoryItem(h);
+                                });
                               }}
                             >
                               Archive
@@ -1265,14 +1595,30 @@ function StaffMain({
               <p className="eyebrow">Notifications</p>
               <h4>Latest</h4>
             </div>
-            <button
-              className="btn pill ghost"
-              type="button"
-              disabled={notificationsLoading || notifications.length === 0}
-              onClick={markAllRead}
-            >
-              Mark all read
-            </button>
+            <div className="notification-actions">
+              <button
+                className={`btn pill ${notificationFilter === "unread" ? "primary" : "ghost"}`}
+                type="button"
+                onClick={() => setNotificationFilter("unread")}
+              >
+                Unread
+              </button>
+              <button
+                className={`btn pill ${notificationFilter === "all" ? "primary" : "ghost"}`}
+                type="button"
+                onClick={() => setNotificationFilter("all")}
+              >
+                All
+              </button>
+              <button
+                className="btn pill ghost"
+                type="button"
+                disabled={notificationsLoading || notifications.length === 0}
+                onClick={markAllRead}
+              >
+                Mark all read
+              </button>
+            </div>
           </div>
           <div className="notification-list">
             {notificationsLoading ? (
@@ -1284,17 +1630,26 @@ function StaffMain({
                 <p className="muted small">No notifications yet.</p>
               </div>
             ) : (
-              notifications.map((n) => (
-                <div
+              notifications
+                .filter((n) => (notificationFilter === "all" ? true : n.read !== true))
+                .map((n) => (
+                <button
                   key={n.id}
+                  type="button"
                   className={`notification-item ${n.read === true ? "read" : "unread"} fade-in`}
+                  onClick={() => {
+                    if (typeof markNotificationRead === "function") {
+                      markNotificationRead(n.id);
+                    }
+                    openNotificationModal(n);
+                  }}
                 >
                   <div className="notification-top">
                     <span className="notification-title">{n.title || "Update"}</span>
                     <span className="muted tiny">{formatWhenShort(n.createdAt)}</span>
                   </div>
                   <p className="notification-body">{n.body || ""}</p>
-                </div>
+                </button>
               ))
             )}
           </div>
@@ -1347,13 +1702,15 @@ function StaffMain({
                   <small>Payment</small>
                   <strong>{formatPaymentMethodLabel(activeRequest.paymentMethod || activeRequest.paidVia)}</strong>
                 </div>
-                <div>
-                  <small>Payment status</small>
-                  <strong>
-                    {activeRequest.paymentStatus ||
-                      (activeRequest.paidAt || activeRequest.cashReceivedAt ? "PAID" : "--")}
-                  </strong>
-                </div>
+                {requestTab !== "completed" && (
+                  <div>
+                    <small>Payment status</small>
+                    <strong>
+                      {activeRequest.paymentStatus ||
+                        (activeRequest.paidAt || activeRequest.cashReceivedAt ? "PAID" : "--")}
+                    </strong>
+                  </div>
+                )}
                 {activeRequest?.staffArrived && (
                   <div>
                     <small>Arrival</small>
@@ -1415,7 +1772,7 @@ function StaffMain({
                 const cashReserved = paymentMethod === "CASH_ON_HAND" && paymentStatus === "RESERVED";
                 const canComplete =
                   statusLower === "accepted" && hasPaymentMethod && isArrivalConfirmed && !cashReserved;
-                const showComplete = requestTab === "request" || requestTab === "ongoing";
+                const showComplete = requestTab === "ongoing";
                 return (
                   <>
               {String(activeRequest.status || "").toLowerCase() === "accepted" &&
@@ -1450,8 +1807,10 @@ function StaffMain({
                     }`}
                     type="button"
                     onClick={() => {
-                      triggerArrivedClick(activeRequest);
-                      handleStaffArrived?.(activeRequest);
+                      runWithConfirm("Mark staff arrival for this request?", () => {
+                        triggerArrivedClick(activeRequest);
+                        handleStaffArrived?.(activeRequest);
+                      });
                     }}
                   >
                     Mark arrived
@@ -1460,6 +1819,130 @@ function StaffMain({
                   </>
                 );
               })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNotificationModal && activeNotification && (
+        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Notification details">
+          <div className="staff-request-modal__backdrop" onClick={closeNotificationModal} />
+          <div className="staff-request-modal__panel staff-track-modal staff-track-modal--details">
+            <div className="staff-track-modal__hero">
+              <div className="staff-track-modal__icon">
+                <i className="fas fa-bell"></i>
+              </div>
+              <h3>Notification details</h3>
+            </div>
+            <div className="staff-request-modal__header">
+              <button className="icon-btn" type="button" onClick={closeNotificationModal}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="staff-request-modal__body">
+              <div className="staff-request-grid">
+                <div>
+                  <small>Title</small>
+                  <strong>{activeNotification.title || "Notification"}</strong>
+                </div>
+                <div>
+                  <small>Time</small>
+                  <strong>
+                    {activeNotification.createdAt ? formatWhenShort(activeNotification.createdAt) : "--"}
+                  </strong>
+                </div>
+                {activeNotification.requestId && (
+                  <div className="full">
+                    <small>Request ID</small>
+                    <strong>{activeNotification.requestId}</strong>
+                  </div>
+                )}
+                <div className="full">
+                  <small>Message</small>
+                  <strong>{activeNotification.body || activeNotification.message || "—"}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="staff-request-modal__footer">
+              <button className="btn ghost" type="button" onClick={closeNotificationModal}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTimelineItem && (
+        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Activity details">
+          <div className="staff-request-modal__backdrop" onClick={() => setActiveTimelineItem(null)} />
+          <div className="staff-request-modal__panel staff-track-modal staff-track-modal--details">
+            <div className="staff-track-modal__hero">
+              <div className="staff-track-modal__icon">
+                <i className="fas fa-clock"></i>
+              </div>
+              <h3>Activity details</h3>
+            </div>
+            <div className="staff-request-modal__header">
+              <button className="icon-btn" type="button" onClick={() => setActiveTimelineItem(null)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="staff-request-modal__body">
+              <div className="staff-request-grid">
+                <div>
+                  <small>Title</small>
+                  <strong>{activeTimelineItem.title}</strong>
+                </div>
+                <div>
+                  <small>Time</small>
+                  <strong>{activeTimelineItem.when ? formatWhenShort(activeTimelineItem.when) : "--"}</strong>
+                </div>
+                {activeTimelineItem.detail && (
+                  <div className="full">
+                    <small>Details</small>
+                    <strong>{activeTimelineItem.detail}</strong>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="staff-request-modal__footer">
+              {activeTimelineItem.requestId && (
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={() => {
+                    const target = (requests || []).find(
+                      (req) => String(req?.id || "") === String(activeTimelineItem.requestId)
+                    );
+                    if (target) {
+                      setActiveTimelineItem(null);
+                      openRequestModal(target);
+                    }
+                  }}
+                >
+                  View request
+                </button>
+              )}
+              {activeTimelineItem.notificationId && (
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={() => {
+                    const target = (notifications || []).find(
+                      (n) => String(n?.id || "") === String(activeTimelineItem.notificationId)
+                    );
+                    if (target) {
+                      setActiveTimelineItem(null);
+                      openNotificationModal(target);
+                    }
+                  }}
+                >
+                  View notification
+                </button>
+              )}
+              <button className="btn ghost" type="button" onClick={() => setActiveTimelineItem(null)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -1771,96 +2254,160 @@ function StaffMain({
         </div>
       )}
 
+      {confirmState.open && (
+        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label={confirmState.title}>
+          <div className="staff-request-modal__backdrop" onClick={closeConfirmModal} />
+          <div className="staff-request-modal__panel">
+            <div className="staff-request-modal__body">
+              <h3>{confirmState.title}</h3>
+              <p className="muted small">{confirmState.message}</p>
+            </div>
+            <div className="staff-request-modal__footer">
+              <button className="btn ghost" type="button" onClick={closeConfirmModal}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                type="button"
+                onClick={() => {
+                  const action = confirmState.onConfirm;
+                  closeConfirmModal();
+                  if (typeof action === "function") action();
+                }}
+              >
+                Yes, proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isVisible("history") && (
         <section className="panel card" id="history">
           <div className="panel-header">
             <div>
               <p className="eyebrow">History</p>
-              <h4>Completed services</h4>
+              <h4>Account activity</h4>
+            </div>
+          </div>
+          <div className="staff-history-filters">
+            <label>
+              Category
+              <select
+                value={historyFilterType}
+                onChange={(e) => {
+                  setHistoryFilterType(e.target.value);
+                  setHistoryPage(1);
+                }}
+              >
+                <option value="all">All</option>
+                <option value="request">Requests</option>
+                <option value="attendance">Attendance</option>
+                <option value="payment">Payments</option>
+                <option value="completion">Completion</option>
+                <option value="notification">Notifications</option>
+              </select>
+            </label>
+            <label>
+              Service type
+              <select
+                value={historyServiceType}
+                onChange={(e) => {
+                  setHistoryServiceType(e.target.value);
+                  setHistoryPage(1);
+                }}
+              >
+                <option value="">All</option>
+                {(staffServiceOptions || []).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              From
+              <input
+                type="date"
+                value={historyFromDate}
+                onChange={(e) => {
+                  setHistoryFromDate(e.target.value);
+                  setHistoryPage(1);
+                }}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={historyToDate}
+                onChange={(e) => {
+                  setHistoryToDate(e.target.value);
+                  setHistoryPage(1);
+                }}
+              />
+            </label>
+            <div className="filter-actions">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() => {
+                  setHistoryFilterType("all");
+                  setHistoryServiceType("");
+                  setHistoryFromDate("");
+                  setHistoryToDate("");
+                  setHistoryPage(1);
+                }}
+              >
+                Clear
+              </button>
             </div>
           </div>
           {requestsLoading ? (
-            <div className="empty-state">Loading service history...</div>
-          ) : historyVisible.length === 0 ? (
-            <div className="empty-state">No completed services yet.</div>
+            <div className="empty-state">Loading account activity...</div>
+          ) : timelineFiltered.length === 0 ? (
+            <div className="empty-state">No activity yet.</div>
           ) : (
-            <div className="history-table">
-            <div className="history-head">
-              <span>Job</span>
-              <span>When</span>
-              <span>Payout</span>
-              <span>Payment</span>
-              <span>Actions</span>
-            </div>
-            {historyPaged.map((h) => (
-              <div key={h.id} className="history-row">
-                <span>{h.job}</span>
-                <span>{h.date}</span>
-                <span>{h.payout}</span>
-                <span className={`chip ${h.status}`}>{h.payment}</span>
-                <div className="history-actions">
-                  {historyTab === "archived" ? (
-                    <button
-                      className="btn pill ghost danger"
-                      type="button"
-                      onClick={() => deleteHistoryItem(h)}
-                    >
-                      Delete
-                    </button>
-                  ) : (
-                    <button
-                      className="btn pill ghost"
-                      type="button"
-                      onClick={() => archiveHistoryItem(h)}
-                    >
-                      Archive
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+            <div className="history-timeline">
+              {timelinePaged.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className="timeline-row"
+                  onClick={() => setActiveTimelineItem(entry)}
+                >
+                  <div className="timeline-dot" />
+                  <div className="timeline-content">
+                    <div className="timeline-header">
+                      <strong>{entry.title}</strong>
+                      <span className="muted tiny">
+                        {entry.when ? formatWhenShort(entry.when) : "--"}
+                      </span>
+                    </div>
+                    <p className="timeline-body">{entry.detail || "—"}</p>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
           <div className="table-footer">
-            <div className="tab-row">
-              <button
-                className={`btn pill ghost ${historyTab === "active" ? "active" : ""}`}
-                type="button"
-                onClick={() => {
-                  setHistoryTab("active");
-                  setHistoryPage(1);
-                }}
-              >
-                Active
-              </button>
-              <button
-                className={`btn pill ghost ${historyTab === "archived" ? "active" : ""}`}
-                type="button"
-                onClick={() => {
-                  setHistoryTab("archived");
-                  setHistoryPage(1);
-                }}
-              >
-                Archived
-              </button>
-            </div>
             <div className="table-pagination">
               <button
                 className="btn pill ghost"
                 type="button"
-                disabled={historyCurrentPage <= 1}
+                disabled={timelineCurrentPage <= 1}
                 onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
               >
                 Prev
               </button>
               <span className="muted small">
-                Page {historyCurrentPage} of {historyTotalPages}
+                Page {timelineCurrentPage} of {timelineTotalPages}
               </span>
               <button
                 className="btn pill ghost"
                 type="button"
-                disabled={historyCurrentPage >= historyTotalPages}
-                onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                disabled={timelineCurrentPage >= timelineTotalPages}
+                onClick={() => setHistoryPage((p) => Math.min(timelineTotalPages, p + 1))}
               >
                 Next
               </button>

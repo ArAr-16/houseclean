@@ -15,7 +15,8 @@ import {
 
 function normalizeStatus(raw) {
   const value = String(raw || "").trim().toUpperCase();
-  if (value === "CANCELLED" || value === "DECLINED") return "CANCELLED";
+  if (value === "CANCELLED" || value === "DECLINED" || value.includes("DECLIN")) return "CANCELLED";
+  if (value === "REJECTED" || value.includes("REJECT")) return "CANCELLED";
   if (value === "ACCEPTED") return "ACCEPTED";
   if (value === "CONFIRMED") return "ACCEPTED";
   if (value === "COMPLETED") return "COMPLETED";
@@ -232,7 +233,7 @@ function CustomerRequestsInner({
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("PENDING");
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundTarget, setRefundTarget] = useState(null);
   const [refundReason, setRefundReason] = useState("");
@@ -726,19 +727,60 @@ function CustomerRequestsInner({
               aria-label="Search requests"
             />
           </div>
-          <div className="filter-selects">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter by status"
-            >
-              <option value="ALL">All status</option>
-              <option value="PENDING">Pending</option>
-              <option value="ACCEPTED">Accepted</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
+        </div>
+        <div className="request-tabs" role="tablist" aria-label="Request status">
+          {(() => {
+            const term = String(searchTerm || "").trim().toLowerCase();
+            const baseFiltered = (requests || []).filter((r) => {
+              if (!term) return true;
+              const haystack = [
+                r.serviceType,
+                r.service,
+                r.housekeeperName,
+                r.requestId,
+                r.id,
+                r.location,
+                r.address
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              return haystack.includes(term);
+            });
+
+            const grouped = {
+              PENDING: [],
+              ACCEPTED: [],
+              COMPLETED: [],
+              CANCELLED: []
+            };
+            baseFiltered.forEach((r) => {
+              const bucket = normalizeStatus(r.status);
+              if (!grouped[bucket]) grouped.PENDING.push(r);
+              else grouped[bucket].push(r);
+            });
+
+            const tabs = [
+              { key: "PENDING", label: "Pending" },
+              { key: "ACCEPTED", label: "Accepted / In-Progress" },
+              { key: "COMPLETED", label: "Completed" },
+              { key: "CANCELLED", label: "Cancelled" }
+            ];
+
+            return tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === tab.key}
+                className={`request-tab ${statusFilter === tab.key ? "active" : ""}`}
+                onClick={() => setStatusFilter(tab.key)}
+              >
+                <span>{tab.label}</span>
+                <span className="tab-count">{grouped[tab.key]?.length || 0}</span>
+              </button>
+            ));
+          })()}
         </div>
 
         {loading ? (
@@ -746,110 +788,103 @@ function CustomerRequestsInner({
         ) : requests.length === 0 ? (
           <div className="muted small">No requests yet. Create one above.</div>
         ) : (
-  (() => {
-    const sortByLatest = (a, b) => {
-      const aTime =
-        Number(a.updatedAt || a.completedAt || a.acceptedAt || a.confirmedAt || a.createdAt || a.timestamp || 0) || 0;
-      const bTime =
-        Number(b.updatedAt || b.completedAt || b.acceptedAt || b.confirmedAt || b.createdAt || b.timestamp || 0) || 0;
-      return bTime - aTime;
-    };
-    const term = String(searchTerm || "").trim().toLowerCase();
-    const filtered = (requests || []).filter((r) => {
-      const status = normalizeStatus(r.status);
-      if (statusFilter !== "ALL" && status !== statusFilter) return false;
-      if (!term) return true;
-      const haystack = [
-        r.serviceType,
-        r.service,
-        r.housekeeperName,
-        r.requestId,
-        r.id,
-        r.location,
-        r.address
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(term);
-    });
+          (() => {
+            const sortByLatest = (a, b) => {
+              const aTime =
+                Number(
+                  a.updatedAt ||
+                    a.completedAt ||
+                    a.acceptedAt ||
+                    a.confirmedAt ||
+                    a.createdAt ||
+                    a.timestamp ||
+                    0
+                ) || 0;
+              const bTime =
+                Number(
+                  b.updatedAt ||
+                    b.completedAt ||
+                    b.acceptedAt ||
+                    b.confirmedAt ||
+                    b.createdAt ||
+                    b.timestamp ||
+                    0
+                ) || 0;
+              return bTime - aTime;
+            };
+            const term = String(searchTerm || "").trim().toLowerCase();
+            const filtered = (requests || []).filter((r) => {
+              const status = normalizeStatus(r.status);
+              if (status !== statusFilter) return false;
+              if (!term) return true;
+              const haystack = [
+                r.serviceType,
+                r.service,
+                r.housekeeperName,
+                r.requestId,
+                r.id,
+                r.location,
+                r.address
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              return haystack.includes(term);
+            });
 
-    const grouped = {
-      PENDING: [],
-      ACCEPTED: [],
-      COMPLETED: [],
-      CANCELLED: []
-    };
-    filtered.forEach((r) => {
-      const bucket = normalizeStatus(r.status);
-      if (!grouped[bucket]) grouped.PENDING.push(r);
-      else grouped[bucket].push(r);
-    });
-    Object.keys(grouped).forEach((key) => grouped[key].sort(sortByLatest));
+            filtered.sort(sortByLatest);
 
-    const renderGroup = (title, list) => (
-      <div className="request-group" key={title}>
-        <div className="request-group__header">
-          <h4>{title}</h4>
-          <span className="muted small">{list.length} request{list.length === 1 ? "" : "s"}</span>
-        </div>
-        {list.length === 0 ? (
-          <div className="muted small">No requests in this status.</div>
-        ) : (
-          <div className="request-list">
-            {list.map((r) => {
-              const rowId = String(r.requestId || r.id || "");
-              const highlight = successId && rowId && rowId === successId;
-              return (
-                <div
-                  key={rowId || r.id}
-                  className={`request-row ${highlight ? "highlight" : ""}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openTrackModal(r)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openTrackModal(r);
-                    }
-                  }}
-                >
-                  <div className="request-meta">
-                    <strong>{r.serviceType || "Service"}</strong>
-                    <div className="schedule-pill">
-                      <span className="schedule-label">Schedule</span>
-                      <span className="schedule-value">{formatSchedule(r)}</span>
+            if (filtered.length === 0) {
+              return <div className="muted small">No requests in this status.</div>;
+            }
+
+            return (
+              <div className="request-list">
+                {filtered.map((r) => {
+                  const rowId = String(r.requestId || r.id || "");
+                  const highlight = successId && rowId && rowId === successId;
+                  return (
+                    <div
+                      key={rowId || r.id}
+                      className={`request-row ${highlight ? "highlight" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openTrackModal(r)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openTrackModal(r);
+                        }
+                      }}
+                    >
+                      <div className="request-meta">
+                        <strong>{r.serviceType || "Service"}</strong>
+                        <div className="schedule-pill">
+                          <span className="schedule-label">Schedule</span>
+                          <span className="schedule-value">{formatSchedule(r)}</span>
+                        </div>
+                        {(() => {
+                          const rawStatus = String(r.status || "").toUpperCase();
+                          const isDeclined =
+                            rawStatus === "DECLINED" || rawStatus.includes("DECLIN") || rawStatus.includes("REJECT");
+                          if (!isDeclined) return null;
+                          return <span className="muted small">Declined by staff</span>;
+                        })()}
+                        {r.housekeeperName && (
+                          <span className="muted small">Housekeeper: {r.housekeeperName}</span>
+                        )}
+                      </div>
+
+                      <div className="request-status">
+                        <DetailedStatusTracker request={r} />
+                      </div>
                     </div>
-                    {r.housekeeperName && (
-                      <span className="muted small">Housekeeper: {r.housekeeperName}</span>
-                    )}
-                  </div>
-
-                  <div className="request-status">
-                    <DetailedStatusTracker request={r} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            );
+          })()
         )}
-      </div>
-    );
-
-    if (filtered.length === 0) {
-      return <div className="muted small">No matching requests.</div>;
-    }
-
-    return (
-      <div className="request-groups">
-        {renderGroup("Pending", grouped.PENDING)}
-        {renderGroup("Accepted / In-Progress", grouped.ACCEPTED)}
-        {renderGroup("Completed", grouped.COMPLETED)}
-        {renderGroup("Cancelled", grouped.CANCELLED)}
-      </div>
-    );
-  })()
-)}
 </section>
 
       {showSubmittedModal && (

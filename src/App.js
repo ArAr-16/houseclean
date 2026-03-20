@@ -19,6 +19,7 @@ import StaffRequests from "./pages/staff/StaffRequests";
 import StaffSchedule from "./pages/staff/StaffSchedule";
 import StaffHistory from "./pages/staff/StaffHistory";
 import StaffSettings from "./pages/staff/StaffSettings";
+import StaffNotifications from "./pages/staff/StaffNotifications";
 import Customer from "./pages/customer/Customer";
 import CustomerSettings from "./pages/customer/CustomerSettings";
 import CustomerRequests from "./pages/customer/CustomerRequests";
@@ -126,6 +127,7 @@ function AppContent() {
               <Routes>
                 <Route path="/staff" element={<StaffDashboard />} />
                 <Route path="/staff/requests" element={<StaffRequests />} />
+                <Route path="/staff/notifications" element={<StaffNotifications />} />
                 <Route path="/staff/schedule" element={<StaffSchedule />} />
                 <Route path="/staff/history" element={<StaffHistory />} />
                 <Route path="/staff/settings" element={<StaffSettings />} />
@@ -158,6 +160,7 @@ function AppContent() {
                 <Route path="/householder/settings" element={<CustomerSettings />} />
                 <Route path="/staff" element={<StaffDashboard />} />
                 <Route path="/staff/requests" element={<StaffRequests />} />
+                <Route path="/staff/notifications" element={<StaffNotifications />} />
                 <Route path="/staff/schedule" element={<StaffSchedule />} />
                 <Route path="/staff/history" element={<StaffHistory />} />
                 <Route path="/staff/settings" element={<StaffSettings />} />

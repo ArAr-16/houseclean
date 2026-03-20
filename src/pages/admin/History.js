@@ -17,9 +17,35 @@ const getActivityIcon = (type) => {
 };
 
 function History() {
-  const [status, setStatus] = useState("all");
-  const [type, setType] = useState("all");
+  const getDefaultRange = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    return { from: fmt(start), to: fmt(end) };
+  };
+  const stored = (() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("hc_admin_history_filters");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const defaults = getDefaultRange();
+
+  const [status, setStatus] = useState(stored?.status || "all");
+  const [type, setType] = useState(stored?.type || "all");
+  const [fromDate, setFromDate] = useState(stored?.fromDate || defaults.from);
+  const [toDate, setToDate] = useState(stored?.toDate || defaults.to);
   const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const payload = { status, type, fromDate, toDate };
+    localStorage.setItem("hc_admin_history_filters", JSON.stringify(payload));
+  }, [status, type, fromDate, toDate]);
 
   useEffect(() => {
     const historyRef = ref(rtdb, "AdminHistory");
@@ -40,12 +66,18 @@ function History() {
     return () => unsub();
   }, []);
   const filtered = useMemo(() => {
+    const from = fromDate ? new Date(fromDate) : null;
+    const to = toDate ? new Date(toDate) : null;
+    const toEnd = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999) : null;
     return (history || []).filter((h) => {
       const sOk = status === "all" || h.status === status;
       const tOk = type === "all" || h.type === type;
-      return sOk && tOk;
+      const when = Number(h.createdAt || 0) || 0;
+      const fromOk = from ? when >= from.getTime() : true;
+      const toOk = toEnd ? when <= toEnd.getTime() : true;
+      return sOk && tOk && fromOk && toOk;
     });
-  }, [history, status, type]);
+  }, [history, status, type, fromDate, toDate]);
 
   return (
     <div className="admin-page neo-admin">
@@ -114,6 +146,18 @@ function History() {
                   <option value="backup">Backup</option>
                   <option value="refund">Refund</option>
                 </select>
+                <input
+                  className="pill-select"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+                <input
+                  className="pill-select"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
               </div>
             </div>
 

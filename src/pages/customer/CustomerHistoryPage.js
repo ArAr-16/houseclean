@@ -45,12 +45,44 @@ function inferType(item) {
 }
 
 function CustomerHistoryPage() {
-  const [serviceType, setServiceType] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [filterType, setFilterType] = useState("all");
+  const getDefaultRange = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 30);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    return { from: fmt(start), to: fmt(end) };
+  };
+
+  const loadFilters = () => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("hc_customer_history_filters");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const defaults = getDefaultRange();
+  const stored = loadFilters();
+
+  const [serviceType, setServiceType] = useState(stored?.serviceType || "");
+  const [fromDate, setFromDate] = useState(stored?.fromDate || defaults.from);
+  const [toDate, setToDate] = useState(stored?.toDate || defaults.to);
+  const [filterType, setFilterType] = useState(stored?.filterType || "all");
   const [historyTab, setHistoryTab] = useState("active");
   const [page, setPage] = useState(1);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const payload = {
+      serviceType,
+      fromDate,
+      toDate,
+      filterType
+    };
+    localStorage.setItem("hc_customer_history_filters", JSON.stringify(payload));
+  }, [serviceType, fromDate, toDate, filterType]);
 
   return (
     <CustomerChrome>
