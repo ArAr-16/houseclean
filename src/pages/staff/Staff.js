@@ -15,6 +15,7 @@ import {
   set as rtdbSet,
   update as rtdbUpdate
 } from "firebase/database";
+import { logAdminHistory } from "../../utils/adminHistory";
 import BroomLoader from "../../components/BroomLoader";
 import StaffHeader from "./components/StaffHeader";
 import StaffSidebar from "./components/StaffSidebar";
@@ -32,8 +33,18 @@ const STAFF_SERVICE_OPTIONS = [
 ];
 
 const WEEKDAY_OPTIONS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DEFAULT_CITY = "Dagupan City";
+const DEFAULT_COUNTRY = "Philippines";
 
-function Staff({ visibleSections }) {
+function Staff({
+  visibleSections,
+  renderDashboardSection,
+  renderRequestsSection,
+  renderNotificationsSection,
+  renderScheduleSection,
+  renderSettingsSection,
+  renderHistorySection
+}) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState(null);
@@ -195,7 +206,11 @@ function Staff({ visibleSections }) {
       lastName: String(data?.lastName || lastFromName || "").trim(),
       email: String(data?.email || auth.currentUser?.email || "").trim(),
       contact: String(data?.contact || data?.phone || "").trim(),
-      address: String(data?.address || data?.location || "").trim(),
+      address: String(data?.address || "").trim(),
+      barangay: String(data?.barangay || "").trim(),
+      landmark: String(data?.landmark || "").trim(),
+      municipality: DEFAULT_CITY,
+      province: DEFAULT_COUNTRY,
       avatarSeed: String(data?.avatarSeed || "housekeeper").trim(),
       skills: safeSkills,
       availabilityDays: safeDays,
@@ -233,6 +248,8 @@ function Staff({ visibleSections }) {
     const contactRaw = String(form?.contact || "").trim();
     const contact = normalizePhone(contactRaw);
     const address = String(form?.address || "").trim();
+    const barangay = String(form?.barangay || "").trim();
+    const landmark = String(form?.landmark || "").trim();
     const skills = Array.isArray(form?.skills) ? form.skills : [];
     const days = Array.isArray(form?.availabilityDays) ? form.availabilityDays : [];
     const start = String(form?.availabilityStart || "").trim();
@@ -253,7 +270,13 @@ function Staff({ visibleSections }) {
       errors.contact = "Use PH mobile format: 09XXXXXXXXX.";
     }
     if (!address || address.length < 5) {
-      errors.address = "Address must be at least 5 characters.";
+      errors.address = "House number/street must be at least 5 characters.";
+    }
+    if (!barangay) {
+      errors.barangay = "Barangay is required.";
+    }
+    if (!landmark) {
+      errors.landmark = "Landmark is required.";
     }
     if (skills.length === 0) {
       errors.skills = "Select at least one service capability.";
@@ -290,7 +313,19 @@ function Staff({ visibleSections }) {
       email: staffProfileForm.email.trim(),
       contact: normalizePhone(staffProfileForm.contact),
       address: staffProfileForm.address.trim(),
-      location: staffProfileForm.address.trim(),
+      barangay: String(staffProfileForm.barangay || "").trim(),
+      landmark: String(staffProfileForm.landmark || "").trim(),
+      municipality: DEFAULT_CITY,
+      province: DEFAULT_COUNTRY,
+      location: [
+        staffProfileForm.address.trim(),
+        String(staffProfileForm.barangay || "").trim(),
+        String(staffProfileForm.landmark || "").trim(),
+        DEFAULT_CITY,
+        DEFAULT_COUNTRY
+      ]
+        .filter(Boolean)
+        .join(", "),
       avatarSeed: String(staffProfileForm.avatarSeed || profile?.avatarSeed || "housekeeper").trim(),
       skills: staffProfileForm.skills,
       availabilityDays: staffProfileForm.availabilityDays,
@@ -636,15 +671,24 @@ function Staff({ visibleSections }) {
     if (!cashReserved || status !== "ACCEPTED") return;
     if (!req?.staffArrived) return;
 
-    await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
-      paymentStatus: "PAID",
-      paidVia: "CASH_ON_HAND",
-      paidAt: rtdbServerTimestamp(),
-      cashReceivedAt: rtdbServerTimestamp(),
-      cashReceivedById: profile?.id || auth.currentUser?.uid || "",
-      cashReceivedByName: displayName,
-      updatedAt: rtdbServerTimestamp()
-    });
+      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+        paymentStatus: "PAID",
+        paidVia: "CASH_ON_HAND",
+        paidAt: rtdbServerTimestamp(),
+        cashReceivedAt: rtdbServerTimestamp(),
+        cashReceivedById: profile?.id || auth.currentUser?.uid || "",
+        cashReceivedByName: displayName,
+        updatedAt: rtdbServerTimestamp()
+      });
+      logAdminHistory({
+        type: "payment",
+        status: "success",
+        action: "Payment received (cash)",
+        message: `${req?.serviceType || "Service"} paid in cash.`,
+        requestId: id,
+        customerId: req?.householderId || req?.customerId,
+        staffId: profile?.id || auth.currentUser?.uid || ""
+      });
 
     const customerId = String(req?.householderId || "").trim();
     const serviceLabel = String(req?.serviceType || req?.service || "Service request");
@@ -842,6 +886,12 @@ function Staff({ visibleSections }) {
           showProfilePrompt={showProfilePrompt}
           profileToast={profileToast}
           onDismissProfileToast={() => setProfileToast("")}
+          renderDashboardSection={renderDashboardSection}
+          renderRequestsSection={renderRequestsSection}
+          renderNotificationsSection={renderNotificationsSection}
+          renderScheduleSection={renderScheduleSection}
+          renderSettingsSection={renderSettingsSection}
+          renderHistorySection={renderHistorySection}
         />
       </div>
     </div>

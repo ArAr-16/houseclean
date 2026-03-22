@@ -4,6 +4,7 @@ import { rtdb, auth, secondaryAuth, functions } from "../../firebase";
 import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged } from "firebase/auth";
 import { ref, onValue, set, update as rtdbUpdate, remove, serverTimestamp } from "firebase/database";
 import { httpsCallable } from "firebase/functions";
+import { logAdminHistory } from "../../utils/adminHistory";
 
 const sampleStaff = [
   {
@@ -90,6 +91,46 @@ const emptyForm = {
   confirmPassword: "",
 };
 
+const createAvatarDataUri = (presetId) => {
+  const base = "data:image/svg+xml;charset=utf-8,";
+  const preset = String(presetId || "mop");
+  const map = {
+    mop: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><rect x=\"45\" y=\"18\" width=\"6\" height=\"42\" rx=\"3\" fill=\"#0EA5E9\"/><rect x=\"34\" y=\"54\" width=\"28\" height=\"8\" rx=\"4\" fill=\"#38BDF8\"/><path d=\"M28 62c6 10 34 10 40 0\" fill=\"none\" stroke=\"#0EA5E9\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+    broom: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEF3C7\" stroke=\"#F59E0B\" stroke-width=\"2\"/><rect x=\"46\" y=\"16\" width=\"4\" height=\"46\" rx=\"2\" fill=\"#B45309\"/><path d=\"M32 60h32l-6 16H38l-6-16z\" fill=\"#F59E0B\"/><path d=\"M38 60l2 8M44 60l2 8M50 60l2 8M56 60l2 8\" stroke=\"#B45309\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg>",
+    vacuum: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#EDE9FE\" stroke=\"#8B5CF6\" stroke-width=\"2\"/><rect x=\"30\" y=\"48\" width=\"28\" height=\"18\" rx=\"9\" fill=\"#8B5CF6\"/><circle cx=\"62\" cy=\"58\" r=\"8\" fill=\"#C4B5FD\"/><path d=\"M58 36h12\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M70 36v18\" stroke=\"#8B5CF6\" stroke-width=\"4\" stroke-linecap=\"round\"/></svg>",
+    spray: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DCFCE7\" stroke=\"#22C55E\" stroke-width=\"2\"/><rect x=\"40\" y=\"34\" width=\"16\" height=\"8\" rx=\"3\" fill=\"#22C55E\"/><rect x=\"36\" y=\"42\" width=\"24\" height=\"34\" rx=\"8\" fill=\"#4ADE80\"/><path d=\"M56 30h10\" stroke=\"#16A34A\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"72\" cy=\"34\" r=\"3\" fill=\"#22C55E\"/></svg>",
+    bucket: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DBEAFE\" stroke=\"#3B82F6\" stroke-width=\"2\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#60A5FA\"/><path d=\"M36 32c0-6 24-6 24 0\" fill=\"none\" stroke=\"#3B82F6\" stroke-width=\"4\" stroke-linecap=\"round\"/><path d=\"M38 54c6 6 14 6 20 0\" stroke=\"#3B82F6\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+    apron: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FFE4E6\" stroke=\"#F43F5E\" stroke-width=\"2\"/><path d=\"M34 28c8 10 20 10 28 0\" fill=\"none\" stroke=\"#F43F5E\" stroke-width=\"3\" stroke-linecap=\"round\"/><path d=\"M30 36h36l-4 36H34l-4-36z\" fill=\"#FB7185\"/><rect x=\"40\" y=\"48\" width=\"16\" height=\"10\" rx=\"4\" fill=\"#FFE4E6\"/></svg>",
+    gloves: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#FEE2E2\" stroke=\"#EF4444\" stroke-width=\"2\"/><path d=\"M30 54c0-10 6-14 10-14s6 4 6 8v20H36c-4 0-6-4-6-14z\" fill=\"#F87171\"/><path d=\"M60 50c0-8 6-12 10-12s6 4 6 8v18H66c-4 0-6-4-6-14z\" fill=\"#FB7185\"/></svg>",
+    housekeeper: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0E7FF\" stroke=\"#6366F1\" stroke-width=\"2\"/><circle cx=\"48\" cy=\"38\" r=\"12\" fill=\"#A5B4FC\"/><path d=\"M28 74c4-16 36-16 40 0\" fill=\"#818CF8\"/><path d=\"M38 36c6 4 14 4 20 0\" stroke=\"#6366F1\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/></svg>",
+    sparkle_home: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#ECFCCB\" stroke=\"#65A30D\" stroke-width=\"2\"/><path d=\"M26 50l22-18 22 18v22H26V50z\" fill=\"#84CC16\"/><path d=\"M44 72V56h8v16\" fill=\"#D9F99D\"/><path d=\"M70 30l4 4m0-4l-4 4\" stroke=\"#65A30D\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
+    bubbles: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><circle cx=\"36\" cy=\"52\" r=\"12\" fill=\"#BAE6FD\"/><circle cx=\"58\" cy=\"42\" r=\"10\" fill=\"#7DD3FC\"/><circle cx=\"58\" cy=\"64\" r=\"8\" fill=\"#38BDF8\"/></svg>",
+    home: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DCFCE7\" stroke=\"#22C55E\" stroke-width=\"2\"/><path d=\"M24 48l24-20 24 20\" fill=\"none\" stroke=\"#16A34A\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><rect x=\"30\" y=\"46\" width=\"36\" height=\"26\" rx=\"4\" fill=\"#22C55E\"/><rect x=\"42\" y=\"56\" width=\"12\" height=\"16\" rx=\"2\" fill=\"#DCFCE7\"/></svg>",
+    admin: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#DBEAFE\" stroke=\"#3B82F6\" stroke-width=\"2\"/><path d=\"M48 24l20 8v16c0 12-8 22-20 26-12-4-20-14-20-26V32l20-8z\" fill=\"#3B82F6\"/><path d=\"M40 46l6 6 10-12\" fill=\"none\" stroke=\"#DBEAFE\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>"
+  };
+  const svg = map[preset] || map.mop;
+  return `${base}${encodeURIComponent(svg)}`;
+};
+
+const getAvatarSeed = (user, fallbackSeed) => {
+  const seed =
+    user?.avatarSeed ||
+    user?.profile?.avatarSeed ||
+    user?.avatar?.seed ||
+    user?.avatar?.id ||
+    user?.avatarPreset ||
+    "";
+  const normalized = String(seed || "").trim();
+  return normalized || String(fallbackSeed || "").trim();
+};
+
+const getAvatarUrl = (user, fallbackSeed) => {
+  const raw = String(user?.avatarUrl || user?.avatar || user?.profile?.avatarUrl || "").trim();
+  if (raw.startsWith("data:image")) return raw;
+  const seed = getAvatarSeed(user, fallbackSeed) || raw;
+  return seed ? createAvatarDataUri(seed) : "";
+};
+
 const skillOptions = [
   "Housecleaning",
   "Deep Cleaning",
@@ -142,9 +183,8 @@ function ManageUsers() {
   const [formErrors, setFormErrors] = useState({}); 
   const [selected, setSelected] = useState(sampleStaff[0]); 
   const [statusFilter, setStatusFilter] = useState("all"); 
-  const [roleFilter, setRoleFilter] = useState("all"); 
-  const [currentUser, setCurrentUser] = useState(null); 
-  const [tableTab, setTableTab] = useState("active");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [tableTab, setTableTab] = useState("housekeeper");
   const [page, setPage] = useState(1);
   const pageSize = 8;
 
@@ -236,12 +276,20 @@ function ManageUsers() {
       const tabOk = tableTab === "archived" ? inArchived : !inArchived;
       const statusOk =
         tableTab === "archived" ? true : statusFilter === "all" || statusValue === statusFilter;
-      const roleOk = roleFilter === "all" || (s.role || "").toLowerCase() === roleFilter;
+      const roleKey = String(s.role || "").toLowerCase();
+      const roleOk =
+        tableTab === "archived"
+          ? true
+          : tableTab === "housekeeper"
+            ? ["housekeeper", "staff"].includes(roleKey)
+            : tableTab === "admin"
+              ? ["admin"].includes(roleKey)
+              : ["householder", "customer", "user"].includes(roleKey);
       return combined.includes(term) && tabOk && statusOk && roleOk;
     });
     if (results.length && !selected) setSelected(results[0]);
     return results;
-  }, [staff, search, selected, statusFilter, roleFilter, tableTab]);
+  }, [staff, search, selected, statusFilter, tableTab]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStaff.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -250,7 +298,7 @@ function ManageUsers() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, roleFilter, tableTab]);
+  }, [search, statusFilter, tableTab]);
 
   const handleToggleStatus = (id) => {
     setStaff((prev) =>
@@ -264,6 +312,14 @@ function ManageUsers() {
     if (target) {
       const nextStatus = target.status === "active" ? "disabled" : "active";
       rtdbUpdate(ref(rtdb, `Users/${id}`), { status: nextStatus }).catch(() => {});
+      logAdminHistory({
+        type: nextStatus === "disabled" ? "user-disable" : "user-enable",
+        status: nextStatus === "disabled" ? "warning" : "success",
+        action: `${nextStatus === "disabled" ? "Disabled" : "Enabled"} user`,
+        message: `${buildDisplayName(target)} set to ${nextStatus}.`,
+        userId: id,
+        userName: buildDisplayName(target)
+      });
     }
   };
 
@@ -275,6 +331,34 @@ function ManageUsers() {
       status: "archived",
       archivedAt: serverTimestamp()
     }).catch(() => {});
+    const target = staff.find((s) => s.id === id);
+    logAdminHistory({
+      type: "user-disable",
+      status: "warning",
+      action: "Archived user",
+      message: `${buildDisplayName(target)} archived.`,
+      userId: id,
+      userName: buildDisplayName(target)
+    });
+  };
+
+  const handleRestoreUser = (id) => {
+    setStaff((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, status: "active", archivedAt: "" } : s))
+    );
+    rtdbUpdate(ref(rtdb, `Users/${id}`), {
+      status: "active",
+      archivedAt: ""
+    }).catch(() => {});
+    const target = staff.find((s) => s.id === id);
+    logAdminHistory({
+      type: "user-enable",
+      status: "success",
+      action: "Restored user",
+      message: `${buildDisplayName(target)} restored.`,
+      userId: id,
+      userName: buildDisplayName(target)
+    });
   };
 
   const handleDelete = async (id) => {
@@ -284,6 +368,13 @@ function ManageUsers() {
       await fn({ uid: id });
       setStaff((prev) => prev.filter((s) => s.id !== id));
       if (selected?.id === id) setSelected(null);
+      logAdminHistory({
+        type: "user-disable",
+        status: "warning",
+        action: "Deleted user",
+        message: `User ${id} deleted.`,
+        userId: id
+      });
     } catch (err) {
       // Fallback: at least remove the RTDB profile if the function isn't deployed yet.
       remove(ref(rtdb, `Users/${id}`)).catch(() => {});
@@ -386,10 +477,10 @@ function ManageUsers() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-    try {
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!validateForm()) return;
+      try {
       const cred = await createUserWithEmailAndPassword(
         secondaryAuth,
         form.email.trim(),
@@ -420,6 +511,14 @@ function ManageUsers() {
         joined: new Date().toISOString().slice(0, 10),
       };
       await set(ref(rtdb, `Users/${uid}`), newStaff);
+      logAdminHistory({
+        type: "user-add",
+        status: "success",
+        action: "Created user account",
+        message: `${newStaff.fullName || newStaff.email || "New user"} created.`,
+        userId: uid,
+        userName: newStaff.fullName || newStaff.email
+      });
       setForm(emptyForm);
       setFormErrors({});
       setShowModal(false);
@@ -489,6 +588,20 @@ function ManageUsers() {
             ? data.serviceAreas
             : [],
         }));
+        // Ensure every account has a default avatar seed when missing.
+        list.forEach((user) => {
+          const seed = String(user?.avatarSeed || "").trim();
+          if (seed) return;
+          const roleKey = String(user?.role || "").toLowerCase();
+          const fallbackSeed = roleKey.includes("householder") || roleKey.includes("customer") || roleKey.includes("user")
+            ? "home"
+            : roleKey.includes("housekeeper") || roleKey.includes("staff")
+              ? "mop"
+              : roleKey.includes("admin")
+                ? "admin"
+                : "broom";
+          rtdbUpdate(ref(rtdb, `Users/${user.id}`), { avatarSeed: fallbackSeed }).catch(() => {});
+        });
         list.sort((a, b) => (b.joined || "").localeCompare(a.joined || ""));
         setStaff(list);
         setSelected((prev) => {
@@ -508,6 +621,15 @@ function ManageUsers() {
     setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, role } : s)));
     if (selected?.id === id) setSelected((p) => ({ ...p, role }));
     rtdbUpdate(ref(rtdb, `Users/${id}`), { role }).catch(() => {});
+    const target = staff.find((s) => s.id === id);
+    logAdminHistory({
+      type: "config",
+      status: "info",
+      action: "Updated user role",
+      message: `${buildDisplayName(target)} role set to ${role}.`,
+      userId: id,
+      userName: buildDisplayName(target)
+    });
   };
 
   const heroPerson = selected || staff[0] || sampleStaff[0];
@@ -528,6 +650,13 @@ function ManageUsers() {
  
   const selectedDisplayName = buildDisplayName(selected);
   const selectedInitials = buildInitials(selected);
+  const selectedFallbackSeed =
+    selectedProfileType === "admin"
+      ? "admin"
+      : selectedProfileType === "housekeeper"
+        ? "mop"
+        : "home";
+  const selectedAvatarUrl = getAvatarUrl(selected, selectedFallbackSeed);
 
   const selectedPhone = selected?.phone || selected?.contact || "-----";
   const selectedLocation = (() => {
@@ -595,33 +724,51 @@ function ManageUsers() {
                   <p className="eyebrow">Staff roster</p>
                   <h4>Accounts & Roles</h4>
                 </div>
-                <div className="table-tabs">
-                  <button
-                    className={`btn pill ghost ${tableTab === "active" ? "active" : ""}`}
-                    type="button"
-                    onClick={() => setTableTab("active")}
-                  >
-                    Active
-                  </button>
-                  <button
-                    className={`btn pill ghost ${tableTab === "archived" ? "active" : ""}`}
-                    type="button"
-                    onClick={() => setTableTab("archived")}
-                  >
-                    Archived
-                  </button>
-                </div>
-                <div className="filters-row">
-                  <div className="search-box modern">
-                    <i className="fas fa-search" />
-                    <input
-                      type="text"
-                      placeholder="Search name, email, skill, or area"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
+                
+                
+              </div>
+              
+                <div className="table-toolbar">
+                  <div className="table-tabs">
+                    <button
+                      className={`btn pill ghost ${tableTab === "housekeeper" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTableTab("housekeeper")}
+                    >
+                      Housekeeper
+                    </button>
+                    <button
+                      className={`btn pill ghost ${tableTab === "householder" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTableTab("householder")}
+                    >
+                      Householder
+                    </button>
+                    <button
+                      className={`btn pill ghost ${tableTab === "admin" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTableTab("admin")}
+                    >
+                      Admin
+                    </button>
+                    <button
+                      className={`btn pill ghost ${tableTab === "archived" ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setTableTab("archived")}
+                    >
+                      Archive
+                    </button>
                   </div>
-                  <div className="pill-group">
+                  <div className="table-filters">
+                    <div className="search-box modern">
+                      <i className="fas fa-search" />
+                      <input
+                        type="text"
+                        placeholder="Search name, email, skill, or area"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                    </div>
                     <select
                       className="pill-select"
                       value={statusFilter}
@@ -629,20 +776,11 @@ function ManageUsers() {
                     >
                       <option value="all">All status</option>
                       <option value="active">Active</option>
+                      <option value="pending">Pending</option>
                       <option value="disabled">Disabled</option>
-                    </select>
-                    <select
-                      className="pill-select"
-                      value={roleFilter}
-                      onChange={(e) => setRoleFilter(e.target.value)}
-                    >
-                      <option value="all">All roles</option>
-                      <option value="householder">Householder</option>
-                      <option value="housekeeper">Housekeeper</option>
                     </select>
                   </div>
                 </div>
-              </div>
               <div className="team-table modern">
                 <table>
                   <thead>
@@ -662,7 +800,16 @@ function ManageUsers() {
                           const rowInitials = buildInitials(s);
                           const rowEmail = String(s.email || "").trim();
                           const rowEmailLabel = rowEmail || "—";
- 
+                          const roleKey = String(s.role || "").toLowerCase();
+                          const fallbackSeed = roleKey.includes("householder") || roleKey.includes("customer") || roleKey.includes("user")
+                            ? "home"
+                            : roleKey.includes("housekeeper") || roleKey.includes("staff")
+                              ? "mop"
+                              : roleKey.includes("admin")
+                                ? "admin"
+                                : "broom";
+                          const avatarUrl = getAvatarUrl(s, fallbackSeed);
+
                           return (
                         <tr 
                           key={s.id} 
@@ -675,7 +822,19 @@ function ManageUsers() {
                           > 
                           <td className="fit">{startIndex + idx + 1}</td> 
                           <td className="user-name compact col-name"> 
-                            <span className="user-avatar"> 
+                            <span
+                              className={`user-avatar ${avatarUrl ? "has-seed" : ""}`}
+                              style={
+                                avatarUrl
+                                  ? {
+                                      backgroundImage: `url(${avatarUrl})`,
+                                      backgroundSize: "cover",
+                                      backgroundPosition: "center",
+                                      color: "transparent"
+                                    }
+                                  : undefined
+                              }
+                            > 
                               {rowInitials} 
                             </span> 
                             <div className="user-meta"> 
@@ -734,16 +893,28 @@ function ManageUsers() {
                                 </button>
                               </>
                             ) : (
-                              <button
-                                className="icon-btn ghost danger"
-                                title="Delete"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(s.id);
-                                }}
-                              >
-                                <i className="fas fa-trash-alt"></i>
-                              </button>
+                              <>
+                                <button
+                                  className="icon-btn ghost"
+                                  title="Restore"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRestoreUser(s.id);
+                                  }}
+                                >
+                                  <i className="fas fa-undo"></i>
+                                </button>
+                                <button
+                                  className="icon-btn ghost danger"
+                                  title="Delete"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(s.id);
+                                  }}
+                                >
+                                  <i className="fas fa-trash-alt"></i>
+                                </button>
+                              </>
                             )}
                           </td> 
                         </tr> 
@@ -1177,7 +1348,19 @@ function ManageUsers() {
             <div className="profile-layout">
               <div className="profile-main">
                 <div className="profile-hero">
-                  <div className="avatar-xl">
+                  <div
+                    className="avatar-xl"
+                    style={
+                      selectedAvatarUrl
+                        ? {
+                            backgroundImage: `url(${selectedAvatarUrl})`,
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                            color: "transparent"
+                          }
+                        : undefined
+                    }
+                  >
                     {selectedInitials}
                   </div>
                   <div className="hero-meta">

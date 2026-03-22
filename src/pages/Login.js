@@ -8,6 +8,7 @@ import { signInWithEmailAndPassword, signOut, setPersistence, browserSessionPers
 import { doc, setDoc } from "firebase/firestore";
 import { ref, update, get } from "firebase/database";
 import { resolveAdminStatus } from "../utils/adminRole";
+import { logAdminHistory } from "../utils/adminHistory";
 
 function Login() {
   const [formData, setFormData] = useState({
@@ -90,6 +91,14 @@ function Login() {
 
       const role = (normalizedProfile.role || "").toLowerCase();
       if (adminState.isAdmin) {
+        logAdminHistory({
+          type: "login",
+          status: "success",
+          action: "Admin login",
+          message: `${user.email || email} signed in.`,
+          userId: user.uid,
+          userName: normalizedProfile.fullName || normalizedProfile.name || user.email
+        });
         navigate("/admin");
       } else if (role === "housekeeper" || role === "staff") {
         navigate("/staff");

@@ -15,6 +15,7 @@ import {
   set as rtdbSet,
   update as rtdbUpdate
 } from "firebase/database";
+import { logAdminHistory } from "../../utils/adminHistory";
 import BroomLoader from "../../components/BroomLoader";
 import CustomerSidebar from "./components/CustomerSidebar";
 import CustomerHeader from "./components/CustomerHeader";
@@ -206,6 +207,7 @@ function Customer() {
   const addressLine = [
     profile?.address,
     profile?.barangay,
+    profile?.landmark,
     profile?.municipality,
     profile?.province
   ]
@@ -845,6 +847,14 @@ function Customer() {
         paymentTransactionId: paymentTxn.trim(),
         updatedAt: rtdbServerTimestamp()
       });
+      logAdminHistory({
+        type: "payment",
+        status: "success",
+        action: "Payment confirmed (QR)",
+        message: `${paymentTarget?.serviceType || "Service"} paid via QR.`,
+        requestId: id,
+        customerId: paymentTarget?.householderId || paymentTarget?.customerId
+      });
       const staffId = String(paymentTarget.housekeeperId || "").trim();
       if (staffId) {
         await sendNotification({
@@ -1070,27 +1080,7 @@ function Customer() {
               </div>
             </div>
             <div className="track-modal__actions">
-              <button
-                className="btn pill ghost"
-                type="button"
-                onClick={() =>
-                  downloadFile(
-                    `invoice_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
-                    buildInvoice(paymentTarget)
-                  )
-                }
-              >
-                Download invoice
-              </button>
-              {canRequestRefund(paymentTarget) && (
-                <button
-                  className="btn pill ghost"
-                  type="button"
-                  onClick={() => openRefundModal(paymentTarget)}
-                >
-                  Request refund
-                </button>
-              )}
+              
             </div>
 
             {String(paymentTarget.status || "").toUpperCase() === "PENDING_PAYMENT" &&
@@ -1117,6 +1107,27 @@ function Customer() {
                 </div>
               )}
             <div className="customer-modal__actions">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={() =>
+                  downloadFile(
+                    `invoice_${String(paymentTarget.requestId || paymentTarget.id).slice(-8)}.txt`,
+                    buildInvoice(paymentTarget)
+                  )
+                }
+              >
+                Download invoice
+              </button>
+              {canRequestRefund(paymentTarget) && (
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() => openRefundModal(paymentTarget)}
+                >
+                  Request refund
+                </button>
+              )}
               <button
                 className="btn pill ghost"
                 type="button"
@@ -1239,9 +1250,6 @@ function Customer() {
 }
 
 export default Customer;
-
-
-
 
 
 

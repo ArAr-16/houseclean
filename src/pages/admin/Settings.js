@@ -79,6 +79,16 @@ function Settings() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    const el = document.querySelector(hash);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   const persistPrefs = async (next) => {
     setPrefs(next);
     localStorage.setItem("language", next.language);
@@ -383,26 +393,30 @@ function Settings() {
             </div>
           </section>
 
-          <section className="panel card">
+          <section className="panel card" id="security-rules">
             <div className="panel-header">
               <div>
-                <p className="eyebrow">Security Settings</p>
+                <p className="eyebrow">Security Rules</p>
                 <h4>Protection</h4>
               </div>
             </div>
             <div className="settings-list">
-              <label className="switch-row">
-                <span>Two-factor authentication</span>
-                <input type="checkbox" />
-              </label>
-              <label className="switch-row">
-                <span>Limit login attempts</span>
-                <input type="checkbox" />
-              </label>
-              <label className="switch-row">
-                <span>Auto logout after 30 minutes</span>
-                <input type="checkbox" />
-              </label>
+              <div className="rule-item">
+                <strong>Role-based access</strong>
+                <span>Only Admins can manage users, payments, and settings.</span>
+              </div>
+              <div className="rule-item">
+                <strong>Protected data</strong>
+                <span>Personal details are visible only to authorized roles.</span>
+              </div>
+              <div className="rule-item">
+                <strong>Audit logging</strong>
+                <span>All critical actions are recorded in the Audit log.</span>
+              </div>
+              <div className="rule-item">
+                <strong>Session safety</strong>
+                <span>Idle sessions should be logged out after a set time.</span>
+              </div>
             </div>
           </section>
         </div>

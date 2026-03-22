@@ -514,7 +514,7 @@ function CustomerHistoryInner({
                 <div className="history-actions">
                   {historyTab === "archived" ? (
                     <button
-                      className="btn pill ghost danger"
+                      className="btn pill ghost"
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -637,4 +637,5 @@ function CustomerHistoryInner({
       )}    </>
   );
 }
+
 

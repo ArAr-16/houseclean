@@ -51,6 +51,12 @@ function StaffMain({
   showProfilePrompt,
   profileToast,
   onDismissProfileToast,
+  renderDashboardSection,
+  renderRequestsSection,
+  renderNotificationsSection,
+  renderScheduleSection,
+  renderSettingsSection,
+  renderHistorySection,
   attendanceEntries = [],
   attendanceLoading = false
 }) {
@@ -68,64 +74,24 @@ function StaffMain({
   const [completionToast, setCompletionToast] = React.useState("");
   const [arrivedClickId, setArrivedClickId] = React.useState("");
   const arrivedClickTimer = React.useRef(null);
-  const [historyTab, setHistoryTab] = React.useState("active");
-  const [historyPage, setHistoryPage] = React.useState(1);
   const [archivedHistoryMap, setArchivedHistoryMap] = React.useState({});
-  const getDefaultHistoryRange = () => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 30);
-    const fmt = (d) => d.toISOString().slice(0, 10);
-    return { from: fmt(start), to: fmt(end) };
-  };
-  const storedHistoryFilters = (() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = localStorage.getItem("hc_staff_history_filters");
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  })();
-  const defaultHistoryRange = getDefaultHistoryRange();
-  const [historyFilterType, setHistoryFilterType] = React.useState(storedHistoryFilters?.filterType || "all");
-  const [historyServiceType, setHistoryServiceType] = React.useState(storedHistoryFilters?.serviceType || "");
-  const [historyFromDate, setHistoryFromDate] = React.useState(
-    storedHistoryFilters?.fromDate || defaultHistoryRange.from
-  );
-  const [historyToDate, setHistoryToDate] = React.useState(
-    storedHistoryFilters?.toDate || defaultHistoryRange.to
-  );
   const [requestTab, setRequestTab] = React.useState("request");
   const [requestSearch, setRequestSearch] = React.useState("");
   const [completedPage, setCompletedPage] = React.useState(1);
   const [notificationFilter, setNotificationFilter] = React.useState("all");
   const [activeNotification, setActiveNotification] = React.useState(null);
   const [showNotificationModal, setShowNotificationModal] = React.useState(false);
-  const [activeTimelineItem, setActiveTimelineItem] = React.useState(null);
   const [confirmState, setConfirmState] = React.useState({
     open: false,
     title: "",
     message: "",
     onConfirm: null
   });
-
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    const payload = {
-      filterType: historyFilterType,
-      serviceType: historyServiceType,
-      fromDate: historyFromDate,
-      toDate: historyToDate
-    };
-    localStorage.setItem("hc_staff_history_filters", JSON.stringify(payload));
-  }, [historyFilterType, historyServiceType, historyFromDate, historyToDate]);
   const [attendanceMonth, setAttendanceMonth] = React.useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [attendanceSelectedKey, setAttendanceSelectedKey] = React.useState("");
-  const historyPageSize = 8;
   const [themeMode, setThemeMode] = React.useState(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("theme");
@@ -170,7 +136,7 @@ function StaffMain({
         ""
     ).trim();
     const url = seed ? createAvatarDataUri(seed) : "";
-    return { name, initials: getInitials(name), url };
+    return { name, initials: getInitials(name), url, seed };
   };
   const profileForm = staffProfileForm || {};
   const avatarPresets = [
@@ -471,30 +437,83 @@ function StaffMain({
     [staffHistory, archivedHistoryIds]
   );
 
-  const requestStats = React.useMemo(() => {
-    const counts = { pending: 0, accepted: 0, completed: 0 };
+  const overviewCards = React.useMemo(() => {
+    let revenue = 0;
+    let completed = 0;
+    let cancelled = 0;
     (requests || []).forEach((req) => {
       const status = String(req?.status || "").toLowerCase();
-      if (status === "completed" || req?.completedAt) counts.completed += 1;
-      else if (status === "accepted") counts.accepted += 1;
-      else counts.pending += 1;
+      const total = Number(req?.totalPrice || 0);
+      const hasMethod = Boolean(String(req?.paymentMethod || req?.paidVia || "").trim());
+      if (status === "completed" || req?.completedAt) {
+        completed += 1;
+        if (hasMethod && Number.isFinite(total)) revenue += total;
+      }
+      if (status.includes("cancel") || status.includes("declin") || status.includes("reject")) {
+        cancelled += 1;
+      }
     });
-    return counts;
+    return [
+      { label: "Revenue", value: `PHP ${Math.round(revenue).toLocaleString()}` },
+      { label: "Tasks completed", value: completed },
+      { label: "Tasks cancelled", value: cancelled }
+    ];
   }, [requests]);
 
-  const requestChartData = React.useMemo(
-    () => [
-      { label: "Pending", value: requestStats.pending },
-      { label: "Accepted", value: requestStats.accepted },
-      { label: "Completed", value: requestStats.completed }
-    ],
-    [requestStats]
-  );
+  const feedbackItems = React.useMemo(() => {
+    return (requests || [])
+      .filter((req) => String(req?.feedbackComment || "").trim().length > 0)
+      .map((req) => ({
+        id: req.id || req.requestId || `${req.customer || "customer"}_${req.feedbackAt || req.updatedAt || ""}`,
+        name: req.householderName || req.customer || "Customer",
+        avatar: getCustomerAvatar(req),
+        service: req.serviceType || req.service || "Service",
+        rating: Number(req.feedbackRating || 0) || 0,
+        comment: String(req.feedbackComment || "").trim(),
+        when: req.feedbackAt || req.updatedAt || req.completedAt || req.createdAt
+      }))
+      .sort((a, b) => (Number(b.when || 0) || 0) - (Number(a.when || 0) || 0))
+      .slice(0, 8);
+  }, [requests]);
 
-  const requestChartMax = React.useMemo(() => {
-    const max = Math.max(1, ...requestChartData.map((d) => d.value));
-    return max;
-  }, [requestChartData]);
+  const [statsRangeDays, setStatsRangeDays] = React.useState(7);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const analytics = React.useMemo(() => {
+    const now = Date.now();
+    const rangeMs = statsRangeDays * dayMs;
+    const bucketCount = 7;
+    const bucketMs = rangeMs / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({ requests: 0, revenue: 0 }));
+
+    (requests || []).forEach((req) => {
+      const createdAt = Number(req?.createdAt || req?.timestamp || 0) || 0;
+      if (!createdAt || createdAt < now - rangeMs) return;
+      const index = Math.min(bucketCount - 1, Math.floor((createdAt - (now - rangeMs)) / bucketMs));
+      if (index < 0 || index >= bucketCount) return;
+      buckets[index].requests += 1;
+
+      const status = String(req?.status || "").toLowerCase();
+      const total = Number(req?.totalPrice || 0);
+      const hasMethod = Boolean(String(req?.paymentMethod || req?.paidVia || "").trim());
+      if ((status === "completed" || req?.completedAt) && hasMethod && Number.isFinite(total)) {
+        buckets[index].revenue += total;
+      }
+    });
+
+    const labels = Array.from({ length: bucketCount }, (_, idx) => {
+      const end = new Date(now - rangeMs + (idx + 1) * bucketMs);
+      return end.toLocaleDateString("default", { month: "short", day: "numeric" });
+    });
+
+    return { buckets, labels };
+  }, [requests, statsRangeDays]);
+
+  const staffRequestSeries = analytics.buckets.map((b) => Math.min(40, b.requests * 6 + 6));
+  const staffRevenueSeries = analytics.buckets.map((b) => Math.min(40, Math.round(b.revenue / 1000) * 4 + 4));
+  const staffBars = analytics.buckets.map((b, idx) => ({
+    label: analytics.labels[idx] || `Day ${idx + 1}`,
+    value: Math.min(100, b.requests * 15 + 20)
+  }));
 
   const dashboardReminders = React.useMemo(() => {
     const list = [];
@@ -611,170 +630,6 @@ function StaffMain({
     if (isCashOnHand(req) && !isPaid(req)) return false;
     return true;
   });
-
-  const historyVisible = historyTab === "archived" ? archivedHistoryList : activeHistoryList;
-  const historyTotalPages = Math.max(1, Math.ceil(historyVisible.length / historyPageSize));
-  const historyCurrentPage = Math.min(historyPage, historyTotalPages);
-  const historyStart = (historyCurrentPage - 1) * historyPageSize;
-  const historyPaged = historyVisible.slice(historyStart, historyStart + historyPageSize);
-
-  const timelineEvents = React.useMemo(() => {
-    const entries = [];
-    const visibleRequests = (requests || []).filter((req) => {
-      if (!isHousekeeper) return true;
-      const assignedId = String(req?.housekeeperId || "").trim();
-      return Boolean(currentUserId) && assignedId === currentUserId;
-    });
-
-    visibleRequests.forEach((req) => {
-      const id = String(req?.id || req?.requestId || "");
-      const serviceLabel = req?.serviceType || req?.service || "Service";
-      const location = req?.location || req?.address || "";
-      const job = location ? `${serviceLabel} • ${location}` : serviceLabel;
-
-      const createdAt = Number(req?.createdAt || req?.timestamp || 0) || 0;
-      if (createdAt) {
-        entries.push({
-          id: `${id}_created`,
-          requestId: id,
-          when: createdAt,
-          title: "Request created",
-          detail: job,
-          type: "request",
-          serviceType: serviceLabel
-        });
-      }
-
-      const acceptedAt = Number(req?.acceptedAt || req?.confirmedAt || 0) || 0;
-      if (acceptedAt) {
-        entries.push({
-          id: `${id}_accepted`,
-          requestId: id,
-          when: acceptedAt,
-          title: "Request accepted",
-          detail: job,
-          type: "request",
-          serviceType: serviceLabel
-        });
-      }
-
-      const declinedAt = Number(req?.declinedAt || 0) || 0;
-      const statusLower = String(req?.status || "").toLowerCase();
-      if (declinedAt || statusLower.includes("declin")) {
-        const when = declinedAt || Number(req?.updatedAt || 0) || 0;
-        if (when) {
-          entries.push({
-            id: `${id}_declined`,
-            requestId: id,
-            when,
-            title: "Request declined",
-            detail: job,
-            type: "request",
-            serviceType: serviceLabel
-          });
-        }
-      }
-
-      const arrivedAt = Number(req?.staffArrivedAt || 0) || 0;
-      if (arrivedAt) {
-        entries.push({
-          id: `${id}_arrived`,
-          requestId: id,
-          when: arrivedAt,
-          title: "Staff arrived",
-          detail: job,
-          type: "attendance",
-          serviceType: serviceLabel
-        });
-      }
-
-      const customerConfirmedAt = Number(req?.customerArrivalConfirmedAt || 0) || 0;
-      if (customerConfirmedAt) {
-        entries.push({
-          id: `${id}_confirmed`,
-          requestId: id,
-          when: customerConfirmedAt,
-          title: "Customer confirmed arrival",
-          detail: job,
-          type: "attendance",
-          serviceType: serviceLabel
-        });
-      }
-
-      const cashReceivedAt = Number(req?.cashReceivedAt || 0) || 0;
-      const paidAt = Number(req?.paidAt || 0) || 0;
-      const paymentAt = cashReceivedAt || paidAt;
-      if (paymentAt) {
-        const method = formatPaymentMethodLabel(req?.paymentMethod || req?.paidVia || "");
-        entries.push({
-          id: `${id}_paid`,
-          requestId: id,
-          when: paymentAt,
-          title: "Payment received",
-          detail: `${job} • ${method}`,
-          type: "payment",
-          serviceType: serviceLabel
-        });
-      }
-
-      const completedAt = Number(req?.completedAt || 0) || 0;
-      if (completedAt) {
-        entries.push({
-          id: `${id}_completed`,
-          requestId: id,
-          when: completedAt,
-          title: "Service completed",
-          detail: job,
-          type: "completion",
-          serviceType: serviceLabel
-        });
-      }
-    });
-
-    (notifications || []).forEach((n) => {
-      const createdAt = Number(n?.createdAt || 0) || 0;
-      if (!createdAt) return;
-      entries.push({
-        id: `notif_${n.id}`,
-        notificationId: n.id,
-        when: createdAt,
-        title: n.title || "Notification",
-        detail: n.body || "",
-        type: "notification",
-        serviceType: ""
-      });
-    });
-
-    const seen = new Set();
-    const unique = entries.filter((item) => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    });
-
-    unique.sort((a, b) => (Number(b.when || 0) || 0) - (Number(a.when || 0) || 0));
-    return unique;
-  }, [requests, notifications, isHousekeeper, currentUserId, formatPaymentMethodLabel]);
-
-  const timelineFiltered = React.useMemo(() => {
-    const filterType = String(historyFilterType || "all").toLowerCase();
-    const serviceFilter = String(historyServiceType || "").trim().toLowerCase();
-    const from = historyFromDate ? new Date(historyFromDate) : null;
-    const to = historyToDate ? new Date(historyToDate) : null;
-    const toEnd = to ? new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999) : null;
-    return timelineEvents.filter((entry) => {
-      if (filterType !== "all" && entry.type !== filterType) return false;
-      if (serviceFilter && String(entry.serviceType || "").toLowerCase() !== serviceFilter) return false;
-      if (from && Number(entry.when || 0) < from.getTime()) return false;
-      if (toEnd && Number(entry.when || 0) > toEnd.getTime()) return false;
-      return true;
-    });
-  }, [timelineEvents, historyFilterType, historyServiceType, historyFromDate, historyToDate]);
-
-  const timelineTotalPages = Math.max(1, Math.ceil(timelineFiltered.length / historyPageSize));
-  const timelineCurrentPage = Math.min(historyPage, timelineTotalPages);
-  const timelineStart = (timelineCurrentPage - 1) * historyPageSize;
-  const timelinePaged = timelineFiltered.slice(timelineStart, timelineStart + historyPageSize);
 
   const attendanceCalendar = React.useMemo(() => {
     const { year, month } = attendanceMonth;
@@ -908,6 +763,89 @@ function StaffMain({
     setCashConfirmTarget(null);
   };
 
+  const sectionContext = {
+    showGuest,
+    profile,
+    todayLabel,
+    dashboardReminders,
+    onGoToRequests,
+    overviewCards,
+    ratingDisplay,
+    feedbackItems,
+    formatNotificationWhen,
+    statsRangeDays,
+    setStatsRangeDays,
+    staffRequestSeries,
+    staffRevenueSeries,
+    analytics,
+    staffBars,
+    requestsLoading,
+    requestTab,
+    setRequestTab,
+    incomingRequests,
+    attendanceRequests,
+    cashConfirmationRequests,
+    ongoingRequests,
+    activeHistoryList,
+    completedPaged,
+    completedCurrentPage,
+    completedTotalPages,
+    setCompletedPage,
+    requestSearch,
+    setRequestSearch,
+    matchesSearch,
+    normalizeSearch,
+    getStatusLower,
+    getCustomerAvatar,
+    formatSchedule,
+    getPaymentStatusKey,
+    getPaymentMethodKey,
+    isPaid,
+    isCashReserved,
+    currentUserId,
+    isStaffManager,
+    isHousekeeper,
+    openRequestModal,
+    runWithConfirm,
+    handleRequestAction,
+    paymentMethodByRequestId,
+    setActiveRequest,
+    openCompleteConfirm,
+    triggerArrivedClick,
+    handleStaffArrived,
+    openCashConfirm,
+    archiveHistoryItem,
+    requests,
+    notificationFilter,
+    setNotificationFilter,
+    notificationsLoading,
+    notifications,
+    markAllRead,
+    markNotificationRead,
+    openNotificationModal,
+    formatNotificationBody,
+    attendanceCalendar,
+    attendanceSelectedKey,
+    setAttendanceSelectedKey,
+    attendanceLoading,
+    setAttendanceMonth,
+    showProfilePrompt,
+    avatarPreview,
+    avatarPresets,
+    profileForm,
+    updateField,
+    staffProfileErrors,
+    staffServiceOptions,
+    toggleSkill,
+    weekdayOptions,
+    toggleDay,
+    handleStaffProfileReset,
+    staffProfileSaving,
+    handleStaffProfileSave,
+    themeMode,
+    setThemeMode
+  };
+
   return (
     <main className="staff-main">
       {completionToast && (
@@ -1014,14 +952,42 @@ function StaffMain({
                 {staffProfileErrors.contact && <span className="form-error">{staffProfileErrors.contact}</span>}
               </label>
               <label className="full">
-                Address *
+                House Number/Street *
                 <input
                   type="text"
                   value={profileForm.address || ""}
                   onChange={(e) => updateField("address", e.target.value)}
-                  placeholder="Dagupan City"
+                  placeholder="Enter house number and street"
                 />
                 {staffProfileErrors.address && <span className="form-error">{staffProfileErrors.address}</span>}
+              </label>
+              <label>
+                Barangay *
+                <input
+                  type="text"
+                  value={profileForm.barangay || ""}
+                  onChange={(e) => updateField("barangay", e.target.value)}
+                  placeholder="Enter barangay"
+                />
+                {staffProfileErrors.barangay && <span className="form-error">{staffProfileErrors.barangay}</span>}
+              </label>
+              <label>
+                Landmark *
+                <input
+                  type="text"
+                  value={profileForm.landmark || ""}
+                  onChange={(e) => updateField("landmark", e.target.value)}
+                  placeholder="Enter nearby landmark"
+                />
+                {staffProfileErrors.landmark && <span className="form-error">{staffProfileErrors.landmark}</span>}
+              </label>
+              <label>
+                Dagupan City (Default)
+                <input type="text" value="Dagupan City" readOnly />
+              </label>
+              <label>
+                Philippines (Default)
+                <input type="text" value="Philippines" readOnly />
               </label>
               <div className="full">
                 <p className="form-label">Service capability *</p>
@@ -1133,100 +1099,13 @@ function StaffMain({
           </div>
         </div>
       )}
-      {isVisible("dashboard") && (
-        <section className="panel card staff-dashboard" id="dashboard">
-          <div className="dashboard-banner">
-            <div>
-              <p className="mini-label">Houseclean Staff</p>
-              <h2>
-                Welcome back{showGuest ? "" : `, ${profile?.fullName || profile?.name || profile?.email || "Staff"}`}
-              </h2>
-              <p className="muted small">{todayLabel}</p>
-            </div>
-          </div>
+      {isVisible("dashboard") &&
+        (typeof renderDashboardSection === "function" ? renderDashboardSection(sectionContext) : null)}
 
-          <div className="dashboard-grid">
-            <div className="dash-stat">
-              <span className="muted small">Assigned tasks</span>
-              <strong>{assignedTodayCount}</strong>
-            </div>
-            <div className="dash-stat">
-              <span className="muted small">Next job</span>
-              <strong>{nextJobLabel}</strong>
-            </div>
-            <div className="dash-stat">
-              <span className="muted small">Pending payments</span>
-              <strong>{pendingPaymentsCount}</strong>
-            </div>
-            <div className="dash-stat">
-              <span className="muted small">Rating</span>
-              <strong>{ratingDisplay} / 5</strong>
-            </div>
-          </div>
-
-          <div className="dashboard-chart">
-            <div className="dashboard-chart__header">
-              <div>
-                <p className="eyebrow">Overview</p>
-                <h4>Request pipeline</h4>
-              </div>
-            </div>
-            <div className="dashboard-chart__body">
-              {requestChartData.map((item) => (
-                <div className="chart-row" key={item.label}>
-                  <div className="chart-row__meta">
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                  <div className="chart-row__track" aria-hidden="true">
-                    <div
-                      className="chart-row__fill"
-                      style={{ width: `${Math.round((item.value / requestChartMax) * 100)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="dashboard-reminders">
-            <div className="dashboard-reminders__header">
-              <div>
-                <p className="eyebrow">Reminders</p>
-                <h4>What needs attention</h4>
-              </div>
-              <button
-                className="btn pill ghost"
-                type="button"
-                onClick={() => {
-                  if (typeof onGoToRequests === "function") onGoToRequests();
-                }}
-              >
-                View requests
-              </button>
-            </div>
-            <div className="dashboard-reminders__list">
-              {dashboardReminders.length === 0 ? (
-                <div className="dashboard-reminder empty">You are all caught up.</div>
-              ) : (
-                dashboardReminders.map((item) => (
-                  <div key={item.key} className={`dashboard-reminder ${item.tone}`}>
-                    <span>{item.label}</span>
-                    <strong>{item.count}</strong>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="dashboard-actions">
-          </div>
-
-        </section>
-      )}
-      {isVisible("requests") && (
-        <section className="panel card list-board" id="requests">
-          <div className="panel-header">
+        {isVisible("requests") &&
+          (typeof renderRequestsSection === "function" ? renderRequestsSection(sectionContext) : (
+          <section className="panel card list-board" id="requests">
+            <div className="panel-header">
             <div>
               <p className="eyebrow">Requests</p>
             </div>
@@ -1688,76 +1567,13 @@ function StaffMain({
             )}
           </div>
         </section>
-      )}
+      ))}
       
 
-      {isVisible("notifications") && (
-        <section className="panel card notifications" id="staff-notifications">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Notifications</p>
-              <h4>Latest</h4>
-            </div>
-            <div className="notification-actions">
-              <button
-                className={`btn pill ${notificationFilter === "unread" ? "primary" : "ghost"}`}
-                type="button"
-                onClick={() => setNotificationFilter("unread")}
-              >
-                Unread
-              </button>
-              <button
-                className={`btn pill ${notificationFilter === "all" ? "primary" : "ghost"}`}
-                type="button"
-                onClick={() => setNotificationFilter("all")}
-              >
-                All
-              </button>
-              <button
-                className="btn pill ghost"
-                type="button"
-                disabled={notificationsLoading || notifications.length === 0}
-                onClick={markAllRead}
-              >
-                Mark all read
-              </button>
-            </div>
-          </div>
-          <div className="notification-list">
-            {notificationsLoading ? (
-              <div className="notification-item">
-                <p className="muted small">Loading notifications...</p>
-              </div>
-            ) : notifications.length === 0 ? (
-              <div className="notification-item">
-                <p className="muted small">No notifications yet.</p>
-              </div>
-            ) : (
-              notifications
-                .filter((n) => (notificationFilter === "all" ? true : n.read !== true))
-                .map((n) => (
-                <button
-                  key={n.id}
-                  type="button"
-                  className={`notification-item ${n.read === true ? "read" : "unread"} fade-in`}
-                  onClick={() => {
-                    if (typeof markNotificationRead === "function") {
-                      markNotificationRead(n.id);
-                    }
-                    openNotificationModal(n);
-                  }}
-                >
-                  <div className="notification-top">
-                    <span className="notification-title">{n.title || "Update"}</span>
-                    <span className="notification-time">{formatNotificationWhen(n.createdAt)}</span>
-                  </div>
-                  <p className="notification-body">{formatNotificationBody(n.body || "")}</p>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-      )}
+      {isVisible("notifications") &&
+        (typeof renderNotificationsSection === "function"
+          ? renderNotificationsSection(sectionContext)
+          : null)}
 
       {showRequestModal && activeRequest && (
         <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Request details">
@@ -1977,84 +1793,6 @@ function StaffMain({
         </div>
       )}
 
-      {activeTimelineItem && (
-        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Activity details">
-          <div className="staff-request-modal__backdrop" onClick={() => setActiveTimelineItem(null)} />
-          <div className="staff-request-modal__panel staff-track-modal staff-track-modal--details">
-            <div className="staff-track-modal__hero">
-              <div className="staff-track-modal__icon">
-                <i className="fas fa-clock"></i>
-              </div>
-              <h3>Activity details</h3>
-            </div>
-            <div className="staff-request-modal__header">
-              <button className="icon-btn" type="button" onClick={() => setActiveTimelineItem(null)}>
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-            <div className="staff-request-modal__body">
-              <div className="staff-request-grid">
-                <div>
-                  <small>Title</small>
-                  <strong>{activeTimelineItem.title}</strong>
-                </div>
-                <div>
-                  <small>Time</small>
-                  <strong>
-                    {activeTimelineItem.when ? formatNotificationWhen(activeTimelineItem.when) : "--"}
-                  </strong>
-                </div>
-                {activeTimelineItem.detail && (
-                  <div className="full">
-                    <small>Details</small>
-                    <strong>{formatNotificationBody(activeTimelineItem.detail)}</strong>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="staff-request-modal__footer">
-              {activeTimelineItem.requestId && (
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={() => {
-                    const target = (requests || []).find(
-                      (req) => String(req?.id || "") === String(activeTimelineItem.requestId)
-                    );
-                    if (target) {
-                      setActiveTimelineItem(null);
-                      openRequestModal(target);
-                    }
-                  }}
-                >
-                  View request
-                </button>
-              )}
-              {activeTimelineItem.notificationId && (
-                <button
-                  className="btn primary"
-                  type="button"
-                  onClick={() => {
-                    const target = (notifications || []).find(
-                      (n) => String(n?.id || "") === String(activeTimelineItem.notificationId)
-                    );
-                    if (target) {
-                      setActiveTimelineItem(null);
-                      openNotificationModal(target);
-                    }
-                  }}
-                >
-                  View notification
-                </button>
-              )}
-              <button className="btn ghost" type="button" onClick={() => setActiveTimelineItem(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showCompleteConfirm && activeRequest && (
         <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Complete service">
           <div className="staff-request-modal__backdrop" onClick={closeCompleteConfirm} />
@@ -2089,243 +1827,8 @@ function StaffMain({
         </div>
       )}
 
-      {isVisible("settings") && (
-        <section className="panel card settings-card" id="staff-settings">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Account & Security</p>
-              <h4>Profile</h4>
-            </div>
-          </div>
-          {showProfilePrompt && (
-            <div className="settings-banner">
-              <h4>Welcome! Please complete your staff profile.</h4>
-              <p>
-                This information will be saved to your account and shown to customers when they book and select staff.
-                Fields marked * are required.
-              </p>
-            </div>
-          )}
-          <div className="settings-grid-lite">
-            <div className="full avatar-uploader">
-              <p className="mini-label">Choose an avatar</p>
-              <div className="avatar-preview">
-                {avatarPreview ? <img src={avatarPreview} alt="Avatar" /> : <span>Avatar</span>}
-              </div>
-              <div className="avatar-presets">
-                {avatarPresets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    className={`avatar-chip ${profileForm.avatarSeed === preset.id ? "active" : ""}`}
-                    onClick={() => updateField("avatarSeed", preset.id)}
-                    aria-label={preset.label}
-                    title={preset.label}
-                  >
-                    <img
-                      src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(preset.svg)}`}
-                      alt=""
-                      className="avatar-thumb"
-                    />
-                  </button>
-                ))}
-              </div>
-              <span className="muted tiny">Pick a style. It updates everywhere in your account.</span>
-            </div>
-            <label>
-              First name *
-              <input
-                type="text"
-                value={profileForm.firstName || ""}
-                onChange={(e) => updateField("firstName", e.target.value)}
-                placeholder="Maria"
-              />
-              {staffProfileErrors.firstName && <span className="form-error">{staffProfileErrors.firstName}</span>}
-            </label>
-            <label>
-              Last name *
-              <input
-                type="text"
-                value={profileForm.lastName || ""}
-                onChange={(e) => updateField("lastName", e.target.value)}
-                placeholder="Santos"
-              />
-              {staffProfileErrors.lastName && <span className="form-error">{staffProfileErrors.lastName}</span>}
-            </label>
-            <label>
-              Email *
-              <input
-                type="email"
-                value={profileForm.email || ""}
-                onChange={(e) => updateField("email", e.target.value)}
-                placeholder="maria@example.com"
-              />
-              {staffProfileErrors.email && <span className="form-error">{staffProfileErrors.email}</span>}
-            </label>
-            <label>
-              Contact number *
-                <input
-                  type="text"
-                  value={profileForm.contact || ""}
-                  onChange={(e) => updateField("contact", e.target.value)}
-                  placeholder="09XXXXXXXXX"
-                />
-              {staffProfileErrors.contact && <span className="form-error">{staffProfileErrors.contact}</span>}
-            </label>
-            <label className="full">
-              Address *
-              <input
-                type="text"
-                value={profileForm.address || ""}
-                onChange={(e) => updateField("address", e.target.value)}
-                placeholder="Dagupan City"
-              />
-              {staffProfileErrors.address && <span className="form-error">{staffProfileErrors.address}</span>}
-            </label>
-
-            <div className="full">
-              <p className="form-label">Service capability *</p>
-              <div className="skill-grid">
-                {(staffServiceOptions || []).map((skill) => (
-                  <button
-                    key={skill}
-                    type="button"
-                    className={`skill-pill ${Array.isArray(profileForm.skills) && profileForm.skills.includes(skill) ? "selected" : ""}`}
-                    onClick={() => toggleSkill(skill)}
-                  >
-                    {skill}
-                  </button>
-                ))}
-              </div>
-              {staffProfileErrors.skills && <span className="form-error">{staffProfileErrors.skills}</span>}
-            </div>
-
-            <div className="full">
-              <p className="form-label">Availability *</p>
-              <div className="schedule-grid">
-                <div className="day-grid">
-                  {(weekdayOptions || []).map((day) => (
-                    <button
-                      key={day}
-                      type="button"
-                      className={`day-pill ${Array.isArray(profileForm.availabilityDays) && profileForm.availabilityDays.includes(day) ? "selected" : ""}`}
-                      onClick={() => toggleDay(day)}
-                    >
-                      {day}
-                    </button>
-                  ))}
-                </div>
-                <div className="time-range">
-                  <label>
-                    Start
-                    <input
-                      type="time"
-                      value={profileForm.availabilityStart || ""}
-                      onChange={(e) => updateField("availabilityStart", e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    End
-                    <input
-                      type="time"
-                      value={profileForm.availabilityEnd || ""}
-                      onChange={(e) => updateField("availabilityEnd", e.target.value)}
-                    />
-                  </label>
-                </div>
-              </div>
-              {staffProfileErrors.availability && <span className="form-error">{staffProfileErrors.availability}</span>}
-            </div>
-
-            <label>
-              Experience (years) *
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={profileForm.experienceYears || ""}
-                onChange={(e) => updateField("experienceYears", e.target.value)}
-                placeholder="5"
-              />
-              {staffProfileErrors.experienceYears && (
-                <span className="form-error">{staffProfileErrors.experienceYears}</span>
-              )}
-            </label>
-            <label>
-              Preferred workload (jobs/day) *
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={profileForm.preferredWorkload || ""}
-                onChange={(e) => updateField("preferredWorkload", e.target.value)}
-                placeholder="3"
-              />
-              {staffProfileErrors.preferredWorkload && (
-                <span className="form-error">{staffProfileErrors.preferredWorkload}</span>
-              )}
-            </label>
-            <label className="full">
-              Experience details (optional)
-              <textarea
-                rows={3}
-                value={profileForm.experienceNotes || ""}
-                onChange={(e) => updateField("experienceNotes", e.target.value)}
-                placeholder="Brief description of your experience..."
-              />
-            </label>
-            <label>
-              Rating
-              <input type="text" value={`Rating ${Number(profileForm.rating || 0).toFixed(1)}`} readOnly />
-            </label>
-          </div>
-          <div className="settings-actions">
-            <button
-              className="btn pill ghost"
-              type="button"
-              onClick={handleStaffProfileReset}
-              disabled={staffProfileSaving}
-            >
-              Reset
-            </button>
-            <button
-              className="btn pill primary"
-              type="button"
-              onClick={handleStaffProfileSave}
-              disabled={staffProfileSaving}
-            >
-              {staffProfileSaving ? "Saving..." : "Save changes"}
-            </button>
-          </div>
-
-          <div className="theme-card">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Theme</p>
-                <h4>Appearance</h4>
-              </div>
-              <span className="pill soft">{themeMode === "dark" ? "Dark" : "Light"}</span>
-            </div>
-            <div className="theme-actions">
-              <button
-                className={`btn pill ${themeMode === "light" ? "primary" : "ghost"}`}
-                type="button"
-                onClick={() => setThemeMode("light")}
-              >
-                Light
-              </button>
-              <button
-                className={`btn pill ${themeMode === "dark" ? "primary" : "ghost"}`}
-                type="button"
-                onClick={() => setThemeMode("dark")}
-              >
-                Dark
-              </button>
-            </div>
-            <p className="muted small">Choose a theme to personalize your staff workspace.</p>
-          </div>
-        </section>
-      )}
+      {isVisible("settings") &&
+        (typeof renderSettingsSection === "function" ? renderSettingsSection(sectionContext) : null)}
 
       {showCashConfirm && cashConfirmTarget && (
         <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Confirm payment received">
@@ -2389,230 +1892,24 @@ function StaffMain({
         </div>
       )}
 
-      {isVisible("history") && (
-        <section className="panel card" id="history">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">History</p>
-              <h4>Account activity</h4>
-            </div>
-          </div>
-          <div className="staff-history-filters">
-            <label>
-              Category
-              <select
-                value={historyFilterType}
-                onChange={(e) => {
-                  setHistoryFilterType(e.target.value);
-                  setHistoryPage(1);
-                }}
-              >
-                <option value="all">All</option>
-                <option value="request">Requests</option>
-                <option value="attendance">Attendance</option>
-                <option value="payment">Payments</option>
-                <option value="completion">Completion</option>
-                <option value="notification">Notifications</option>
-              </select>
-            </label>
-            <label>
-              Service type
-              <select
-                value={historyServiceType}
-                onChange={(e) => {
-                  setHistoryServiceType(e.target.value);
-                  setHistoryPage(1);
-                }}
-              >
-                <option value="">All</option>
-                {(staffServiceOptions || []).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              From
-              <input
-                type="date"
-                value={historyFromDate}
-                onChange={(e) => {
-                  setHistoryFromDate(e.target.value);
-                  setHistoryPage(1);
-                }}
-              />
-            </label>
-            <label>
-              To
-              <input
-                type="date"
-                value={historyToDate}
-                onChange={(e) => {
-                  setHistoryToDate(e.target.value);
-                  setHistoryPage(1);
-                }}
-              />
-            </label>
-            <div className="filter-actions">
-              <button
-                className="btn pill ghost"
-                type="button"
-                onClick={() => {
-                  setHistoryFilterType("all");
-                  setHistoryServiceType("");
-                  setHistoryFromDate("");
-                  setHistoryToDate("");
-                  setHistoryPage(1);
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          {requestsLoading ? (
-            <div className="empty-state">Loading account activity...</div>
-          ) : timelineFiltered.length === 0 ? (
-            <div className="empty-state">No activity yet.</div>
-          ) : (
-            <div className="history-timeline">
-              {timelinePaged.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  className="timeline-row"
-                  onClick={() => setActiveTimelineItem(entry)}
-                >
-                  <div className="timeline-dot" />
-                  <div className="timeline-content">
-                    <div className="timeline-header">
-                      <strong>{entry.title}</strong>
-                      <span className="muted tiny">
-                        {entry.when ? formatNotificationWhen(entry.when) : "--"}
-                      </span>
-                    </div>
-                    <p className="timeline-body">{formatNotificationBody(entry.detail || "—")}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="table-footer">
-            <div className="table-pagination">
-              <button
-                className="btn pill ghost"
-                type="button"
-                disabled={timelineCurrentPage <= 1}
-                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
-              >
-                Prev
-              </button>
-              <span className="muted small">
-                Page {timelineCurrentPage} of {timelineTotalPages}
-              </span>
-              <button
-                className="btn pill ghost"
-                type="button"
-                disabled={timelineCurrentPage >= timelineTotalPages}
-                onClick={() => setHistoryPage((p) => Math.min(timelineTotalPages, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
+      {isVisible("history") &&
+        (typeof renderHistorySection === "function"
+          ? renderHistorySection({
+              requests,
+              requestsLoading,
+              notifications,
+              currentUserId,
+              isHousekeeper,
+              staffServiceOptions,
+              formatNotificationWhen,
+              formatNotificationBody,
+              openRequestModal,
+              openNotificationModal
+            })
+          : null)}
 
-      {isVisible("schedule") && (
-        <section className="panel card calendar-card" id="schedule">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Attendance</p>
-              <h4>Staff attendance</h4>
-            </div>
-            <div className="calendar-nav">
-              <button
-                className="btn pill ghost"
-                type="button"
-                onClick={() =>
-                  setAttendanceMonth((prev) => {
-                    const next = new Date(prev.year, prev.month - 1, 1);
-                    return { year: next.getFullYear(), month: next.getMonth() };
-                  })
-                }
-              >
-                Prev
-              </button>
-              <span className="pill soft">{attendanceCalendar.monthLabel}</span>
-              <button
-                className="btn pill ghost"
-                type="button"
-                onClick={() =>
-                  setAttendanceMonth((prev) => {
-                    const next = new Date(prev.year, prev.month + 1, 1);
-                    return { year: next.getFullYear(), month: next.getMonth() };
-                  })
-                }
-              >
-                Next
-              </button>
-            </div>
-          </div>
-          {attendanceLoading ? (
-            <div className="mini-calendar">Loading attendance...</div>
-          ) : (
-            <>
-              <div className="attendance-calendar">
-                <div className="calendar-head">
-                  {attendanceCalendar.weekLabels.map((label) => (
-                    <span key={label}>{label}</span>
-                  ))}
-                </div>
-                <div className="calendar-grid">
-                  {attendanceCalendar.calendarCells.map((cell) =>
-                    cell.empty ? (
-                      <div key={cell.key} className="calendar-cell empty" />
-                    ) : (
-                      <button
-                        key={cell.key}
-                        type="button"
-                        className={`calendar-cell ${cell.hasAttendance ? "has-attendance" : ""} ${
-                          cell.isToday ? "is-today" : ""
-                        } ${attendanceSelectedKey === cell.key ? "is-selected" : ""}`}
-                        onClick={() => setAttendanceSelectedKey(cell.key)}
-                      >
-                        <span className="day-number">{cell.day}</span>
-                        {cell.hasAttendance && <span className="attendance-dot" />}
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-              <div className="attendance-list">
-                {attendanceCalendar.attendanceList.filter((entry) =>
-                  attendanceSelectedKey ? entry.dateKey === attendanceSelectedKey : true
-                ).length === 0 ? (
-                  <div className="mini-calendar">No attendance yet.</div>
-                ) : (
-                  attendanceCalendar.attendanceList
-                    .filter((entry) =>
-                      attendanceSelectedKey ? entry.dateKey === attendanceSelectedKey : true
-                    )
-                    .map((entry) => (
-                      <div key={entry.id} className="attendance-row">
-                        <div>
-                          <span className="attendance-date">{entry.date}</span>
-                          <div className="tiny muted">{entry.service}</div>
-                        </div>
-                        <span>{entry.time}</span>
-                      </div>
-                    ))
-                )}
-              </div>
-            </>
-          )}
-        </section>
-      )}
+      {isVisible("schedule") &&
+        (typeof renderScheduleSection === "function" ? renderScheduleSection(sectionContext) : null)}
     </main>
   );
 }

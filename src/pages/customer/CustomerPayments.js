@@ -10,6 +10,7 @@ import {
   update as rtdbUpdate
 } from "firebase/database";
 import { rtdb } from "../../firebase";
+import { logAdminHistory } from "../../utils/adminHistory";
 
 function moneyLabel(value) {
   const n = typeof value === "number" ? value : Number(value);
@@ -394,18 +395,26 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     if (!txn) return;
     try {
       setSavingId(id);
-      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
-        status: "CONFIRMED",
-        paymentStatus: "PAID",
-        paidVia: "STATIC_QR",
-        paidAt: rtdbServerTimestamp(),
-        paymentTransactionId: txn,
-        updatedAt: rtdbServerTimestamp()
-      });
-      const staffId = String(req?.housekeeperId || "").trim();
-      if (staffId) {
-        await sendNotification({
-          toUserId: staffId,
+        await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+          status: "CONFIRMED",
+          paymentStatus: "PAID",
+          paidVia: "STATIC_QR",
+          paidAt: rtdbServerTimestamp(),
+          paymentTransactionId: txn,
+          updatedAt: rtdbServerTimestamp()
+        });
+        logAdminHistory({
+          type: "payment",
+          status: "success",
+          action: "Payment confirmed (QR)",
+          message: `${req?.serviceType || "Service"} paid via QR.`,
+          requestId: id,
+          customerId: req?.householderId || req?.customerId
+        });
+        const staffId = String(req?.housekeeperId || "").trim();
+        if (staffId) {
+          await sendNotification({
+            toUserId: staffId,
           requestId: id,
           title: "Booking confirmed (Paid)",
           body: `${req?.serviceType || "Service"} has been paid via QR. Please review the job.`
@@ -421,18 +430,26 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     if (!id) return;
     try {
       setSavingId(id);
-      await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
-        status: "RESERVED",
-        paymentStatus: "RESERVED",
-        paidVia: "CASH_ON_HAND",
-        cashOnHandConfirmed: true,
-        cashConfirmedAt: rtdbServerTimestamp(),
-        updatedAt: rtdbServerTimestamp()
-      });
-      const staffId = String(req?.housekeeperId || "").trim();
-      if (staffId) {
-        await sendNotification({
-          toUserId: staffId,
+        await rtdbUpdate(rtdbRef(rtdb, `ServiceRequests/${id}`), {
+          status: "RESERVED",
+          paymentStatus: "RESERVED",
+          paidVia: "CASH_ON_HAND",
+          cashOnHandConfirmed: true,
+          cashConfirmedAt: rtdbServerTimestamp(),
+          updatedAt: rtdbServerTimestamp()
+        });
+        logAdminHistory({
+          type: "payment",
+          status: "info",
+          action: "Cash payment reserved",
+          message: `${req?.serviceType || "Service"} reserved for cash on hand.`,
+          requestId: id,
+          customerId: req?.householderId || req?.customerId
+        });
+        const staffId = String(req?.housekeeperId || "").trim();
+        if (staffId) {
+          await sendNotification({
+            toUserId: staffId,
           requestId: id,
           title: "Cash on Hand reserved",
           body: `${req?.serviceType || "Service"} is reserved for cash payment on arrival.`
@@ -834,8 +851,6 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     </>
   );
 }
-
-
 
 
 

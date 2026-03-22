@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import "../../components/Admin.css";
 import { rtdb } from "../../firebase";
 import { onValue, ref } from "firebase/database";
@@ -7,8 +8,10 @@ const getActivityIcon = (type) => {
   const icons = {
     "user-add": <i className="fas fa-user-plus"></i>,
     "user-disable": <i className="fas fa-user-slash"></i>,
+    "user-enable": <i className="fas fa-user-check"></i>,
     "password-reset": <i className="fas fa-key"></i>,
     login: <i className="fas fa-sign-in-alt"></i>,
+    payment: <i className="fas fa-credit-card"></i>,
     config: <i className="fas fa-cog"></i>,
     backup: <i className="fas fa-database"></i>,
     refund: <i className="fas fa-rotate-left"></i>,
@@ -17,6 +20,7 @@ const getActivityIcon = (type) => {
 };
 
 function History() {
+  const navigate = useNavigate();
   const getDefaultRange = () => {
     const end = new Date();
     const start = new Date();
@@ -79,6 +83,33 @@ function History() {
     });
   }, [history, status, type, fromDate, toDate]);
 
+  const formatWhen = (item) =>
+    item?.when || (item?.createdAt ? new Date(item.createdAt).toLocaleString() : "--");
+
+  const handleExportCsv = () => {
+    const rows = [["When", "Action", "Type", "Status"]];
+    filtered.forEach((h) => {
+      rows.push([
+        formatWhen(h),
+        h.action || h.message || "Activity",
+        h.type || "log",
+        h.status || "info"
+      ]);
+    });
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `admin-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="admin-page neo-admin">
       <div className="dashboard-shell full-width">
@@ -89,10 +120,10 @@ function History() {
               <h2>History & compliance</h2>
               <p className="muted">Trace every admin and user action. Filter, export, and review.</p>
               <div className="cta-row">
-                <button className="btn primary large">
+                <button className="btn primary large" onClick={handleExportCsv}>
                   <i className="fas fa-file-export" /> Export CSV
                 </button>
-                <button className="btn ghost">
+                <button className="btn ghost" onClick={() => navigate("/admin/settings#security-rules")}>
                   <i className="fas fa-shield-alt" /> Security rules
                 </button>
               </div>
@@ -140,8 +171,10 @@ function History() {
                   <option value="all">Type: All</option>
                   <option value="user-add">User add</option>
                   <option value="user-disable">User disable</option>
+                  <option value="user-enable">User enable</option>
                   <option value="password-reset">Password reset</option>
                   <option value="login">Login</option>
+                  <option value="payment">Payment</option>
                   <option value="config">Config</option>
                   <option value="backup">Backup</option>
                   <option value="refund">Refund</option>
@@ -161,27 +194,66 @@ function History() {
               </div>
             </div>
 
-            <div className="history-timeline">
-              {filtered.map((h) => (
-                <div key={h.id} className={`history-item history-${h.status}`}>
-                  <div className="history-marker">
-                    <span className="history-icon" style={{ color: "var(--admin-accent, #f1b856)" }}>{getActivityIcon(h.type)}</span>
-                  </div>
-                  <div className="history-content">
-                    <div className="history-action-text">{h.action || h.message || "Activity"}</div>
-                    <div className="history-meta">
-                      <span className="history-time">
-                        <i className="fas fa-clock"></i>{" "}
-                        {h.when || (h.createdAt ? new Date(h.createdAt).toLocaleString() : "--")}
-                      </span>
-                      <span className={`history-badge badge-${h.status}`}>{h.status || "info"}</span>
+            <div className="history-layout">
+              <div className="history-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Action</th>
+                      <th>Type</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length ? (
+                      filtered.map((h) => (
+                        <tr key={h.id}>
+                          <td className="nowrap">{formatWhen(h)}</td>
+                          <td>{h.action || h.message || "Activity"}</td>
+                          <td className="nowrap">
+                            <span className="history-type">
+                              {getActivityIcon(h.type)} {h.type || "log"}
+                            </span>
+                          </td>
+                          <td className="nowrap">
+                            <span className={`history-badge badge-${h.status}`}>{h.status || "info"}</span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="muted">No activity found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="history-timeline">
+                {filtered.map((h) => (
+                  <div key={h.id} className={`history-item history-${h.status}`}>
+                    <div className="history-marker">
+                      <span className="history-icon" style={{ color: "var(--admin-accent, #f1b856)" }}>{getActivityIcon(h.type)}</span>
+                    </div>
+                    <div className="history-content">
+                      <div className="history-action-text">{h.action || h.message || "Activity"}</div>
+                      <div className="history-meta">
+                        <span className="history-time">
+                          <i className="fas fa-clock"></i>{" "}
+                          {formatWhen(h)}
+                        </span>
+                        <span className={`history-badge badge-${h.status}`}>{h.status || "info"}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+                {!filtered.length && <p className="muted small">No activity yet.</p>}
+              </div>
             </div>
             <div className="history-actions">
-              <button className="btn primary"><i className="fas fa-file-export"></i> Export CSV</button>
+              <button className="btn primary" onClick={handleExportCsv}>
+                <i className="fas fa-file-export"></i> Export CSV
+              </button>
               <button className="btn ghost"><i className="fas fa-trash-restore"></i> Archive</button>
             </div>
           </div>

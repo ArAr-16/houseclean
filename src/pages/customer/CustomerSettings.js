@@ -4,6 +4,9 @@ import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
 import { ref as rtdbRef, update as rtdbUpdate } from "firebase/database";
 import { rtdb } from "../../firebase";
 
+const DEFAULT_CITY = "Dagupan City";
+const DEFAULT_COUNTRY = "Philippines";
+
 function CustomerSettings() {
   return (
     <CustomerChrome>
@@ -133,8 +136,8 @@ function CustomerSettingsInner() {
       location: String(ctx.profile?.location || ""),
       address: String(ctx.profile?.address || ""),
       barangay: String(ctx.profile?.barangay || ""),
-      municipality: String(ctx.profile?.municipality || ""),
-      province: String(ctx.profile?.province || ""),
+      municipality: DEFAULT_CITY,
+      province: DEFAULT_COUNTRY,
       landmark: String(ctx.profile?.landmark || "")
     });
     setAvatarSeed(
@@ -163,11 +166,19 @@ function CustomerSettingsInner() {
       lastName: String(form.lastName || "").trim(),
       fullName: `${String(form.firstName || "").trim()} ${String(form.lastName || "").trim()}`.trim(),
       phone: String(form.phone || "").trim(),
-      location: String(form.location || "").trim(),
+      location: [
+        String(form.address || "").trim(),
+        String(form.barangay || "").trim(),
+        String(form.landmark || "").trim(),
+        DEFAULT_CITY,
+        DEFAULT_COUNTRY
+      ]
+        .filter(Boolean)
+        .join(", "),
       address: String(form.address || "").trim(),
       barangay: String(form.barangay || "").trim(),
-      municipality: String(form.municipality || "").trim(),
-      province: String(form.province || "").trim(),
+      municipality: DEFAULT_CITY,
+      province: DEFAULT_COUNTRY,
       landmark: String(form.landmark || "").trim(),
       avatarSeed: String(avatarSeed || "").trim()
     };
@@ -264,7 +275,7 @@ function CustomerSettingsInner() {
                   placeholder="09xx xxx xxxx"
                 />
               </label>
-                            <label className="form-field">
+              <label className="form-field">
                 Barangay
                 <input
                   type="text"
@@ -273,17 +284,8 @@ function CustomerSettingsInner() {
                   placeholder="Barangay"
                 />
               </label>
-                            <label className="form-field">
-                Municipality
-                <input
-                  type="text"
-                  value={form.municipality}
-                  onChange={(e) => setForm((prev) => ({ ...prev, municipality: e.target.value }))}
-                  placeholder="Municipality"
-                />
-              </label>
               <label className="form-field">
-                House No. & Street
+                House Number/Street
                 <input
                   type="text"
                   value={form.address}
@@ -291,17 +293,6 @@ function CustomerSettingsInner() {
                   placeholder="House number and street"
                 />
               </label>
-
-
-              {/* <label className="form-field">
-                Province
-                <input
-                  type="text"
-                  value={form.province}
-                  onChange={(e) => setForm((prev) => ({ ...prev, province: e.target.value }))}
-                  placeholder="Province"
-                />
-              </label> */}
               <label className="form-field">
                 Landmark
                 <input
@@ -310,6 +301,14 @@ function CustomerSettingsInner() {
                   onChange={(e) => setForm((prev) => ({ ...prev, landmark: e.target.value }))}
                   placeholder="Nearby reference"
                 />
+              </label>
+              <label className="form-field">
+                Dagupan City (Default)
+                <input type="text" value={DEFAULT_CITY} readOnly />
+              </label>
+              <label className="form-field">
+                Philippines (Default)
+                <input type="text" value={DEFAULT_COUNTRY} readOnly />
               </label>
               <label className="form-field">
                 Current password

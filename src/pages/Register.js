@@ -6,6 +6,9 @@ import { doc, setDoc } from "firebase/firestore";
 import { ref, set as rtdbSet } from "firebase/database";
 import "./Login.css";
 
+const DEFAULT_CITY = "Dagupan City";
+const DEFAULT_COUNTRY = "Philippines";
+
 function Register() {
   const [signUpStep, setSignUpStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -179,11 +182,14 @@ function Register() {
     const profile = {
       firstName: formData.firstName,
       lastName: formData.lastName,
-      province: formData.province,
-      municipality: formData.municipality,
+      province: DEFAULT_COUNTRY,
+      municipality: DEFAULT_CITY,
       barangay: formData.barangay,
       address: formData.address,
       landmark: formData.landmark,
+      location: [formData.address, formData.barangay, formData.landmark, DEFAULT_CITY, DEFAULT_COUNTRY]
+        .filter(Boolean)
+        .join(", "),
       email: emailLower,
       phone: formData.phone,
       role: "Householder",
@@ -335,7 +341,7 @@ function Register() {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label htmlFor="address">House No. & Street</label>
+                  <label htmlFor="address">House Number/Street</label>
                   <input
                     type="text"
                     id="address"
@@ -343,12 +349,12 @@ function Register() {
                     value={formData.address}
                     onChange={handleChange}
                     required
-                    placeholder="e.g., 1234 Main St, Unit 5"
+                    placeholder="Enter house number and street"
                     className={errorFields.address ? "input-error" : ""}
                   />
                 </div>
                 <div className="form-group">
-                  <label htmlFor="landmark">Landmark / Nearby Reference</label>
+                  <label htmlFor="landmark">Landmark</label>
                   <input
                     type="text"
                     id="landmark"
@@ -356,9 +362,17 @@ function Register() {
                     value={formData.landmark}
                     onChange={handleChange}
                     required
-                    placeholder="e.g., 'Near Central Park' or 'Opposite Mall'"
+                    placeholder="Enter nearby landmark"
                     className={errorFields.landmark ? "input-error" : ""}
                   />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="municipalityDefault">Dagupan City (Default)</label>
+                  <input type="text" id="municipalityDefault" value={DEFAULT_CITY} readOnly />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="provinceDefault">Philippines (Default)</label>
+                  <input type="text" id="provinceDefault" value={DEFAULT_COUNTRY} readOnly />
                 </div>
                 <div className="form-group">
                   <button type="button" onClick={goToNextStep} className="submit-btn">Next</button>

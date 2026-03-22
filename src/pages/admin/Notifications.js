@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import "../../components/Admin.css";
 import { rtdb } from "../../firebase";
 import { onValue, ref, update as rtdbUpdate, serverTimestamp as rtdbServerTimestamp, push, set as rtdbSet } from "firebase/database";
+import { logAdminHistory } from "../../utils/adminHistory";
 
 function Notifications() {
   const [notifications, setNotifications] = useState([]);
@@ -90,15 +91,6 @@ function Notifications() {
       read: false,
       source: "admin"
     });
-  };
-
-  const logAdminHistory = async (entry) => {
-    const historyRef = ref(rtdb, "AdminHistory");
-    const record = {
-      ...entry,
-      createdAt: rtdbServerTimestamp()
-    };
-    await rtdbSet(push(historyRef), record);
   };
 
   const handleRefundStatus = async (refund, nextStatus) => {

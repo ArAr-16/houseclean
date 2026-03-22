@@ -111,6 +111,60 @@ function CustomerMain({
     return sum / ratings.length;
   })();
   const maxStatus = Math.max(1, statusCounts.completed, statusCounts.active, statusCounts.pending);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const [statsRangeDays, setStatsRangeDays] = React.useState(7);
+
+  const toMs = (value) => {
+    if (value == null) return 0;
+    if (typeof value?.toDate === "function") return value.toDate().getTime();
+    const num = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(num) && num > 0) return num;
+    const parsed = Date.parse(String(value));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  const analytics = React.useMemo(() => {
+    const now = Date.now();
+    const rangeMs = statsRangeDays * dayMs;
+    const bucketCount = 7;
+    const bucketMs = rangeMs / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({ requests: 0, completed: 0, spent: 0 }));
+    let rangeCompleted = 0;
+    let rangeTotal = 0;
+    let rangeSpent = 0;
+
+    (history || []).forEach((item) => {
+      const status = String(item?.status || "").toUpperCase();
+      const createdAt = toMs(item?.when || item?.createdAt || item?.date || item?.startDate);
+      if (!createdAt || createdAt < now - rangeMs) return;
+      const index = Math.min(bucketCount - 1, Math.floor((createdAt - (now - rangeMs)) / bucketMs));
+      if (index < 0 || index >= bucketCount) return;
+      buckets[index].requests += 1;
+      rangeTotal += 1;
+      if (status === "COMPLETED") buckets[index].completed += 1;
+      if (status === "COMPLETED") rangeCompleted += 1;
+      const spentValue = Number(String(item?.payout || item?.totalPrice || 0).replace(/[^\d.]/g, ""));
+      if (Number.isFinite(spentValue)) {
+        buckets[index].spent += spentValue;
+        rangeSpent += spentValue;
+      }
+    });
+
+    const labels = Array.from({ length: bucketCount }, (_, idx) => {
+      const end = new Date(now - rangeMs + (idx + 1) * bucketMs);
+      return end.toLocaleDateString("default", { month: "short", day: "numeric" });
+    });
+
+    const completionRate = rangeTotal ? rangeCompleted / rangeTotal : 0;
+    return { buckets, labels, rangeSpent, completionRate };
+  }, [history, statsRangeDays]);
+
+  const requestSeries = analytics.buckets.map((b) => Math.min(40, b.requests * 6 + 6));
+  const spentSeries = analytics.buckets.map((b) => Math.min(40, Math.round(b.spent / 1000) * 4 + 4));
+  const statsBars = analytics.buckets.map((b, idx) => ({
+    label: analytics.labels[idx] || `Day ${idx + 1}`,
+    value: Math.min(100, b.requests * 15 + 20)
+  }));
 
   const handleCopyLink = async () => {
     const text = String(shareUrl || "").trim();
@@ -177,6 +231,7 @@ function CustomerMain({
           <p className="muted">
             Choose your service, set the time, and we&apos;ll handle the rest.
           </p>
+          
           <div className="quick-actions">
             <button className="btn primary" type="button" onClick={onRequestCleaning}>
               <i className="fas fa-plus-circle"></i> Request Cleaning
@@ -221,13 +276,10 @@ function CustomerMain({
                   <span className="status-line__bg"></span>
                   <span className="status-line__fill"></span>
                 </div>
-                <div className="status-line__steps">
-                  {statusSteps.map((step, idx) => (
-                    <div key={step} className={`status-step ${idx <= statusIndex ? "on" : ""}`}>
-                      <span className="status-dot" aria-hidden="true"></span>
-                      <span className="status-label">{step}</span>
-                    </div>
-                  ))}
+                <div className="status-line__labels" aria-hidden="true">
+                  <span className={statusIndex >= 0 ? "on" : ""}>Pending</span>
+                  <span className={statusIndex >= 1 ? "on" : ""}>Accepted</span>
+                  <span className={statusIndex >= 2 ? "on" : ""}>Completed</span>
                 </div>
               </div>
             </div>
@@ -355,32 +407,87 @@ function CustomerMain({
                 <strong>{avgRating ? avgRating.toFixed(1) : "—"}</strong>
               </div>
             </div>
-            <div className="stats-chart">
-              <div className="chart-row">
-                <span>Completed</span>
-                <div className="chart-bar">
-                  <span style={{ width: `${(statusCounts.completed / maxStatus) * 100}%` }} />
-                </div>
-                <strong>{statusCounts.completed}</strong>
-              </div>
-              <div className="chart-row">
-                <span>Active</span>
-                <div className="chart-bar">
-                  <span className="alt" style={{ width: `${(statusCounts.active / maxStatus) * 100}%` }} />
-                </div>
-                <strong>{statusCounts.active}</strong>
-              </div>
-              <div className="chart-row">
-                <span>Pending</span>
-                <div className="chart-bar">
-                  <span className="warn" style={{ width: `${(statusCounts.pending / maxStatus) * 100}%` }} />
-                </div>
-                <strong>{statusCounts.pending}</strong>
-              </div>
-            </div>
           </>
         )}
       </section>
+
+      <div className="customer-analytics-grid">
+        <section className="panel card customer-analytics-card" id="analytics">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Analytics</p>
+              <h3>Performance</h3>
+            </div>
+            <button
+              className="btn pill ghost"
+              type="button"
+              onClick={() => setStatsRangeDays((prev) => (prev === 30 ? 7 : 30))}
+            >
+              {statsRangeDays === 30 ? "Last 7 days" : "Last 30 days"}
+            </button>
+          </div>
+          <div className="customer-analytics-metrics">
+            <div className="customer-metric">
+              <span className="muted tiny">
+                Total spent ({statsRangeDays === 30 ? "30d" : "7d"})
+              </span>
+              <strong>PHP {Math.round(analytics.rangeSpent).toLocaleString()}</strong>
+            </div>
+            <div className="customer-metric">
+              <span className="muted tiny">
+                Completion rate ({statsRangeDays === 30 ? "30d" : "7d"})
+              </span>
+              <strong>{Math.round(analytics.completionRate * 100)}%</strong>
+            </div>
+          </div>
+          <svg className="customer-linechart" viewBox="0 0 280 140" preserveAspectRatio="none">
+            <polyline
+              fill="none"
+              stroke="#5b7cfa"
+              strokeWidth="3"
+              points={requestSeries
+                .map((v, i) => `${(i / (requestSeries.length - 1)) * 280},${140 - v * 3}`)
+                .join(" ")}
+            />
+            <polyline
+              fill="none"
+              stroke="#67c1f7"
+              strokeWidth="3"
+              points={spentSeries
+                .map((v, i) => `${(i / (spentSeries.length - 1)) * 280},${140 - v * 3}`)
+                .join(" ")}
+            />
+          </svg>
+          <div className="customer-legend">
+            <span><i className="dot primary"></i> Requests</span>
+            <span><i className="dot alt"></i> Spend</span>
+          </div>
+          <div className="customer-sparkline-labels">
+            {analytics.labels.map((d) => (
+              <span key={d}>{d}</span>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel card customer-stats-card" id="weekly">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Statistics</p>
+              <h3>{statsRangeDays === 30 ? "Last 30 days" : "Weekly"}</h3>
+            </div>
+          </div>
+          <div className="customer-bars">
+            {statsBars.map((bar) => (
+              <div key={bar.label} className="customer-bar">
+                <span>{bar.label}</span>
+                <div className="customer-bar__track">
+                  <div className="customer-bar__fill" style={{ width: `${bar.value}%` }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
 
       {shareOpen && (
         <div className="share-modal">
