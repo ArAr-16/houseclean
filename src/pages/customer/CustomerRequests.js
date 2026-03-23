@@ -18,7 +18,6 @@ function normalizeStatus(raw) {
   if (value === "CANCELLED" || value === "DECLINED" || value.includes("DECLIN")) return "CANCELLED";
   if (value === "REJECTED" || value.includes("REJECT")) return "CANCELLED";
   if (value === "ACCEPTED") return "ACCEPTED";
-  if (value === "CONFIRMED") return "ACCEPTED";
   if (value === "COMPLETED") return "COMPLETED";
   return "PENDING";
 }
@@ -1294,7 +1293,5 @@ function CustomerRequestsInner({
     </>
   );
 }
-
-
 
 

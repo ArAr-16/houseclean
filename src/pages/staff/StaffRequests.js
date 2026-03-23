@@ -93,19 +93,12 @@ function StaffRequestsContent({ ctx }) {
                       .map((item) => {
                         const statusClass = ctx.getStatusLower(item);
                         const isPending = statusClass === "pending";
+                        const isPendingPayment = statusClass === "pending_payment";
                         const isConfirmed = statusClass === "confirmed";
                         const isReserved = statusClass === "reserved";
                         const customerName = item.householderName || item.customer || "Customer";
                         const customerAvatar = ctx.getCustomerAvatar(item);
-                        const serviceList = Array.isArray(item.serviceTypes)
-                          ? item.serviceTypes
-                          : String(item.serviceType || item.service || "")
-                              .split(",")
-                              .map((value) => value.trim())
-                              .filter(Boolean);
-                        const baseServiceLabel = serviceList[0] || "Service request";
-                        const serviceLabel =
-                          serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                        const serviceLabel = ctx.getServiceSummary(item);
                         const timeLabel = ctx.formatSchedule(item);
                         const assignedId = String(item.housekeeperId || "").trim();
                         const paymentStatusKey = ctx.getPaymentStatusKey(item);
@@ -131,13 +124,25 @@ function StaffRequestsContent({ ctx }) {
                         const canActOnThis =
                           !assignedId || (Boolean(ctx.currentUserId) && assignedId === ctx.currentUserId);
                         const canConfirm = ctx.isStaffManager && isPending;
-                        const canAccept =
-                          ((ctx.isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                            (ctx.isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                        const paymentMethod = ctx.getPaymentMethodKey(item);
+                        const isStaticQrPayment = paymentMethod === "STATIC_QR";
+                        const isPaymentPaid = ctx.isPaid(item);
+                        const canAcceptIfNotStaticQr =
+                          ((ctx.isStaffManager &&
+                            (isPending || isPendingPayment || isConfirmed || isReserved)) ||
+                            (ctx.isHousekeeper &&
+                              (isPending || isPendingPayment || isConfirmed || isReserved))) &&
                           canActOnThis;
+                        const isAccepted = statusClass === "accepted";
                         const canDecline =
-                          ((ctx.isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                            (ctx.isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                          ((ctx.isStaffManager &&
+                            (isPending || isPendingPayment || isConfirmed || isReserved)) ||
+                            (ctx.isHousekeeper &&
+                              (isPending ||
+                                isPendingPayment ||
+                                isConfirmed ||
+                                isReserved ||
+                                isAccepted))) &&
                           canActOnThis;
 
                         return (
@@ -190,17 +195,21 @@ function StaffRequestsContent({ ctx }) {
                               <button
                                 className="btn primary"
                                 type="button"
-                                disabled={!(canConfirm || canAccept)}
+                                disabled={!(canConfirm || canAcceptIfNotStaticQr)}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  ctx.runWithConfirm(
-                                    canConfirm ? "Confirm this request?" : "Accept this request?",
-                                    () =>
-                                      ctx.handleRequestAction(
-                                        item,
-                                        canConfirm ? "CONFIRMED" : "ACCEPTED"
-                                      )
-                                  );
+                                  if (isStaticQrPayment && !isPaymentPaid) {
+                                    ctx.openPaymentRequiredModal(item);
+                                  } else {
+                                    ctx.runWithConfirm(
+                                      canConfirm ? "Confirm this request?" : "Accept this request?",
+                                      () =>
+                                        ctx.handleRequestAction(
+                                          item,
+                                          canConfirm ? "CONFIRMED" : "ACCEPTED"
+                                        )
+                                    );
+                                  }
                                 }}
                               >
                                 {canConfirm ? "Confirm" : "Accept"}
@@ -232,15 +241,7 @@ function StaffRequestsContent({ ctx }) {
                       .map((item) => {
                         const customerName = item.householderName || item.customer || "Customer";
                         const customerAvatar = ctx.getCustomerAvatar(item);
-                        const serviceList = Array.isArray(item.serviceTypes)
-                          ? item.serviceTypes
-                          : String(item.serviceType || item.service || "")
-                              .split(",")
-                              .map((value) => value.trim())
-                              .filter(Boolean);
-                        const baseServiceLabel = serviceList[0] || "Service request";
-                        const serviceLabel =
-                          serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                        const serviceLabel = ctx.getServiceSummary(item);
                         const timeLabel = ctx.formatSchedule(item);
                         const staffArrived = Boolean(item.staffArrived);
                         const awaitingCustomer = staffArrived && !item.customerArrivalConfirmed;
@@ -277,7 +278,7 @@ function StaffRequestsContent({ ctx }) {
                             </div>
                             <div className="row-meta">
                               <span className={`pill soft ${awaitingCustomer ? "amber" : "blue"}`}>
-                                {awaitingCustomer ? "Awaiting customer" : "Accepted"}
+                                {awaitingCustomer ? "Awaiting customer confirmation" : "Accepted"}
                               </span>
                             </div>
                             <div className="row-meta actions">
@@ -333,15 +334,7 @@ function StaffRequestsContent({ ctx }) {
                       .map((item) => {
                         const customerName = item.householderName || item.customer || "Customer";
                         const customerAvatar = ctx.getCustomerAvatar(item);
-                        const serviceList = Array.isArray(item.serviceTypes)
-                          ? item.serviceTypes
-                          : String(item.serviceType || item.service || "")
-                              .split(",")
-                              .map((value) => value.trim())
-                              .filter(Boolean);
-                        const baseServiceLabel = serviceList[0] || "Service request";
-                        const serviceLabel =
-                          serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                        const serviceLabel = ctx.getServiceSummary(item);
                         const timeLabel = ctx.formatSchedule(item);
                         const hasPaymentMethod = Boolean(
                           ctx.paymentMethodByRequestId?.[item.id] || item.paymentMethod

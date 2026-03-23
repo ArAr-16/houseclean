@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 function CustomerMain({
   basePath,
   onRequestCleaning,
+  onOpenLatestRequestDetails,
+  todayLabel,
   history,
   myRequestsLoading,
   latestRequest,
@@ -36,8 +38,16 @@ function CustomerMain({
     typeof formatWhen === "function" && latestRequest?.lastUpdatedAt
       ? formatWhen(latestRequest.lastUpdatedAt)
       : "";
-  const serviceLabel =
-    latestRequest?.serviceType || latestRequest?.service || "Latest request";
+  const serviceLabel = (() => {
+    const serviceList = Array.isArray(latestRequest?.serviceTypes)
+      ? latestRequest.serviceTypes
+      : String(latestRequest?.serviceType || latestRequest?.service || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+    const baseServiceLabel = serviceList[0] || "Latest request";
+    return serviceList.length > 1 ? `${baseServiceLabel} etc...` : baseServiceLabel;
+  })();
   const paymentInfo = (() => {
     if (!latestRequest) return null;
     const status = String(latestRequest?.status || "").trim().toUpperCase();
@@ -228,6 +238,7 @@ function CustomerMain({
         <div>
           <p className="eyebrow">Welcome back</p>
           <h2>Stay Organized with HOUSECLEAN</h2>
+          <p className="muted small">{todayLabel}</p>
           <p className="muted">
             Choose your service, set the time, and we&apos;ll handle the rest.
           </p>
@@ -264,6 +275,11 @@ function CustomerMain({
                 <span className="muted small">
                   {latestUpdateLabel ? `Updated ${latestUpdateLabel}` : "Updated recently"}
                 </span>
+              </div>
+              <div className="status-card__actions">
+                <button className="btn pill ghost" type="button" onClick={() => onOpenLatestRequestDetails?.()}>
+                  View details
+                </button>
               </div>
               <div
                 className={`status-tracker status-tracker--line status-${latestStatus.toLowerCase()}`}

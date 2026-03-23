@@ -924,7 +924,7 @@ function ManageUsers() {
                     ) : ( 
                       <tr> 
                         <td colSpan="5" className="no-results"> 
-                          No staff found. 
+                          No users found. 
                         </td>
                       </tr>
                     )}

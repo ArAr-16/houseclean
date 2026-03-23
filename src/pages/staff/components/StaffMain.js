@@ -81,6 +81,8 @@ function StaffMain({
   const [notificationFilter, setNotificationFilter] = React.useState("all");
   const [activeNotification, setActiveNotification] = React.useState(null);
   const [showNotificationModal, setShowNotificationModal] = React.useState(false);
+  const [showPaymentRequiredModal, setShowPaymentRequiredModal] = React.useState(false);
+  const [paymentRequiredRequest, setPaymentRequiredRequest] = React.useState(null);
   const [confirmState, setConfirmState] = React.useState({
     open: false,
     title: "",
@@ -593,6 +595,16 @@ function StaffMain({
   const isCashOnHand = (req) => getPaymentMethodKey(req) === "CASH_ON_HAND";
   const isCashReserved = (req) => isCashOnHand(req) && getPaymentStatusKey(req) === "RESERVED";
   const isPaid = (req) => getPaymentStatusKey(req) === "PAID" || Boolean(req?.paidAt);
+  const getServiceSummary = (req) => {
+    const serviceList = Array.isArray(req?.serviceTypes)
+      ? req.serviceTypes
+      : String(req?.serviceType || req?.service || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+    const baseServiceLabel = serviceList[0] || "Service request";
+    return serviceList.length > 1 ? `${baseServiceLabel} etc...` : baseServiceLabel;
+  };
   const canSeeRequest = (req) => {
     if (!isHousekeeper) return true;
     const assignedId = String(req?.housekeeperId || "").trim();
@@ -619,6 +631,7 @@ function StaffMain({
     const statusLower = getStatusLower(req);
     if (statusLower !== "accepted") return false;
     if (!req?.staffArrived) return false;
+    if (!req?.customerArrivalConfirmed) return false;
     return isCashReserved(req);
   });
 
@@ -758,6 +771,23 @@ function StaffMain({
     setShowCashConfirm(true);
   };
 
+  const openPaymentRequiredModal = (req) => {
+    if (!req) {
+      console.warn("openPaymentRequiredModal called with null/undefined request");
+      return;
+    }
+    console.log("Opening payment required modal for request:", req);
+    setPaymentRequiredRequest(req);
+    setShowPaymentRequiredModal(true);
+    console.log("Modal state should be updated now");
+  };
+
+  const closePaymentRequiredModal = () => {
+    console.log("Closing payment required modal");
+    setPaymentRequiredRequest(null);
+    setShowPaymentRequiredModal(false);
+  };
+
   const closeCashConfirm = () => {
     setShowCashConfirm(false);
     setCashConfirmTarget(null);
@@ -797,6 +827,7 @@ function StaffMain({
     normalizeSearch,
     getStatusLower,
     getCustomerAvatar,
+    getServiceSummary,
     formatSchedule,
     getPaymentStatusKey,
     getPaymentMethodKey,
@@ -814,6 +845,7 @@ function StaffMain({
     triggerArrivedClick,
     handleStaffArrived,
     openCashConfirm,
+    openPaymentRequiredModal,
     archiveHistoryItem,
     requests,
     notificationFilter,
@@ -1184,14 +1216,7 @@ function StaffMain({
                           const isReserved = statusClass === "reserved";
                           const customerName = r.householderName || r.customer || "Customer";
                           const customerAvatar = getCustomerAvatar(r);
-                          const serviceList = Array.isArray(r.serviceTypes)
-                            ? r.serviceTypes
-                            : String(r.serviceType || r.service || "")
-                                .split(",")
-                                .map((item) => item.trim())
-                                .filter(Boolean);
-                          const baseServiceLabel = serviceList[0] || "Service request";
-                          const serviceLabel = serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                          const serviceLabel = getServiceSummary(r);
                           const timeLabel = formatSchedule(r);
                           const assignedId = String(r.housekeeperId || "").trim();
                           const assignedName = String(r.housekeeperName || "").trim();
@@ -1214,13 +1239,21 @@ function StaffMain({
                           })();
                           const canActOnThis = !assignedId || (Boolean(currentUserId) && assignedId === currentUserId);
                           const canConfirm = isStaffManager && isPending;
-                          const canAccept =
-                            ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                              (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                          const paymentMethod = getPaymentMethodKey(r);
+                          const isStaticQrPayment = paymentMethod === "STATIC_QR";
+                          const isPaymentPaid = isPaid(r);
+                          const isPendingPayment = statusClass === "pending_payment";
+                          const canAcceptIfNotStaticQr =
+                            ((isStaffManager &&
+                              (isPending || isPendingPayment || isConfirmed || isReserved)) ||
+                              (isHousekeeper &&
+                                (isPending || isPendingPayment || isConfirmed || isReserved))) &&
                             canActOnThis;
                           const canDecline =
-                            ((isStaffManager && (isPending || isConfirmed || isReserved)) ||
-                              (isHousekeeper && (isPending || isConfirmed || isReserved))) &&
+                            ((isStaffManager &&
+                              (isPending || isPendingPayment || isConfirmed || isReserved)) ||
+                              (isHousekeeper &&
+                                (isPending || isPendingPayment || isConfirmed || isReserved))) &&
                             canActOnThis;
 
                           return (
@@ -1277,13 +1310,17 @@ function StaffMain({
                                 <button
                                   className="btn primary"
                                   type="button"
-                                  disabled={!(canConfirm || canAccept)}
+                                  disabled={!(canConfirm || canAcceptIfNotStaticQr)}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    runWithConfirm(
-                                      canConfirm ? "Confirm this request?" : "Accept this request?",
-                                      () => handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED")
-                                    );
+                                    if (isStaticQrPayment && !isPaymentPaid) {
+                                      openPaymentRequiredModal(r);
+                                    } else {
+                                      runWithConfirm(
+                                        canConfirm ? "Confirm this request?" : "Accept this request?",
+                                        () => handleRequestAction(r, canConfirm ? "CONFIRMED" : "ACCEPTED")
+                                      );
+                                    }
                                   }}
                                 >
                                   {canConfirm ? "Confirm" : "Accept"}
@@ -1313,15 +1350,7 @@ function StaffMain({
                           .map((r) => {
                             const customerName = r.householderName || r.customer || "Customer";
                             const customerAvatar = getCustomerAvatar(r);
-                            const serviceList = Array.isArray(r.serviceTypes)
-                              ? r.serviceTypes
-                              : String(r.serviceType || r.service || "")
-                                  .split(",")
-                                  .map((item) => item.trim())
-                                  .filter(Boolean);
-                            const baseServiceLabel = serviceList[0] || "Service request";
-                            const serviceLabel =
-                              serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                            const serviceLabel = getServiceSummary(r);
                             const timeLabel = formatSchedule(r);
                             const staffArrived = Boolean(r.staffArrived);
                             const customerConfirmed = Boolean(r.customerArrivalConfirmed);
@@ -1415,15 +1444,7 @@ function StaffMain({
                           .map((r) => {
                             const customerName = r.householderName || r.customer || "Customer";
                             const customerAvatar = getCustomerAvatar(r);
-                            const serviceList = Array.isArray(r.serviceTypes)
-                              ? r.serviceTypes
-                              : String(r.serviceType || r.service || "")
-                                  .split(",")
-                                  .map((item) => item.trim())
-                                  .filter(Boolean);
-                            const baseServiceLabel = serviceList[0] || "Service request";
-                            const serviceLabel =
-                              serviceList.length > 1 ? `${baseServiceLabel} etc..` : baseServiceLabel;
+                            const serviceLabel = getServiceSummary(r);
                             const timeLabel = formatSchedule(r);
                             const hasPaymentMethod = Boolean(paymentMethodByRequestId?.[r.id] || r.paymentMethod);
                             const canComplete = hasPaymentMethod && Boolean(r.customerArrivalConfirmed);
@@ -1858,6 +1879,41 @@ function StaffMain({
                 }}
               >
                 Yes, confirm payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPaymentRequiredModal && paymentRequiredRequest && (
+        <div className="staff-request-modal" role="dialog" aria-modal="true" aria-label="Payment required" style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.5)" }}>
+          <div className="staff-request-modal__backdrop" onClick={closePaymentRequiredModal} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, backgroundColor: "transparent" }} />
+          <div className="staff-request-modal__panel" style={{ position: "relative", zIndex: 10001, backgroundColor: "white", borderRadius: "12px", padding: "2rem", maxWidth: "500px", width: "90%", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}>
+            <div className="staff-request-modal__header">
+              <button className="icon-btn" type="button" onClick={closePaymentRequiredModal} aria-label="Close payment required modal">
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="staff-request-modal__body">
+              <div className="staff-request-modal__icon" style={{ fontSize: "2.5rem", marginBottom: "1rem", textAlign: "center", color: "#F59E0B" }}>
+                <i className="fas fa-exclamation-circle"></i>
+              </div>
+              <h3 style={{ marginTop: 0, marginBottom: "1rem", textAlign: "center" }}>Payment Required</h3>
+              <p className="muted small" style={{ marginBottom: "1.5rem" }}>
+                This request requires payment to be made first. Please ask the householder to complete the payment using the static QR code before you can accept this request.
+              </p>
+              <div style={{ marginTop: "1.5rem", padding: "1rem", backgroundColor: "#FEF3C7", borderRadius: "8px", borderLeft: "4px solid #F59E0B" }}>
+                <p className="small" style={{ marginTop: 0, marginBottom: "0.5rem" }}>
+                  <strong>Request ID:</strong> {paymentRequiredRequest.requestId || paymentRequiredRequest.id}
+                </p>
+                <p className="small" style={{ marginTop: 0, marginBottom: 0 }}>
+                  <strong>Service:</strong> {getServiceSummary(paymentRequiredRequest)}
+                </p>
+              </div>
+            </div>
+            <div className="staff-request-modal__footer" style={{ marginTop: "2rem", display: "flex", justifyContent: "center" }}>
+              <button className="btn primary" type="button" onClick={closePaymentRequiredModal} style={{ cursor: "pointer" }}>
+                Okay, understood
               </button>
             </div>
           </div>

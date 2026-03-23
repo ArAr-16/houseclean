@@ -533,6 +533,13 @@ function Customer() {
         }
       : null;
   })();
+  const openLatestRequestDetails = () => {
+    const requestId = String(latestRequest?.requestId || latestRequest?.id || "").trim();
+    if (!requestId) return;
+    navigate(`${basePath}/requests`, {
+      state: { openTrackFor: requestId, openTrackModal: true }
+    });
+  };
 
   const arrivalHandledRef = React.useRef(new Set());
 
@@ -730,6 +737,16 @@ function Customer() {
     if (!paid) return false;
     return !["REQUESTED", "APPROVED", "DENIED", "REFUNDED"].includes(refundStatus);
   };
+  const todayLabel = React.useMemo(
+    () =>
+      new Date().toLocaleDateString([], {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+      }),
+    []
+  );
 
   const openRefundModal = (request) => {
     if (!request) return;
@@ -940,6 +957,8 @@ function Customer() {
         <CustomerMain
           basePath={basePath}
           onRequestCleaning={() => setDashboardBookingOpen(true)}
+          onOpenLatestRequestDetails={openLatestRequestDetails}
+          todayLabel={todayLabel}
           history={history}
           myRequestsLoading={myRequestsLoading}
           latestRequest={latestRequest}
@@ -1250,10 +1269,6 @@ function Customer() {
 }
 
 export default Customer;
-
-
-
-
 
 
 

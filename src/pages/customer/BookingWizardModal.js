@@ -148,6 +148,8 @@ function BookingWizardModal({
   const [submitting, setSubmitting] = useState(false);
   const [cashConfirmOpen, setCashConfirmOpen] = useState(false);
   const [cashConfirmAgreed, setCashConfirmAgreed] = useState(false);
+  const [staticQrConfirmOpen, setStaticQrConfirmOpen] = useState(false);
+  const [staticQrConfirmAgreed, setStaticQrConfirmAgreed] = useState(false);
   const [error, setError] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
   const [minDateTime, setMinDateTime] = useState("");
@@ -1119,7 +1121,9 @@ function BookingWizardModal({
         }
       }
 
-      if (typeof onSubmitted === "function") onSubmitted(requestId);
+      if (typeof onSubmitted === "function") {
+        onSubmitted(requestId, { paymentMethod });
+      }
     } catch (err) {
       const code = String(err?.code || "").trim();
       const msg = String(err?.message || "").trim();
@@ -1127,6 +1131,7 @@ function BookingWizardModal({
     } finally {
       setSubmitting(false);
       setCashConfirmAgreed(false);
+      setStaticQrConfirmAgreed(false);
     }
   };
 
@@ -1138,12 +1143,18 @@ function BookingWizardModal({
       setCashConfirmOpen(true);
       return;
     }
+    if (methodKey === "STATIC_QR" && !staticQrConfirmAgreed) {
+      setStaticQrConfirmOpen(true);
+      return;
+    }
     await submitRequest();
   };
 
   useEffect(() => {
     setCashConfirmAgreed(false);
     setCashConfirmOpen(false);
+    setStaticQrConfirmAgreed(false);
+    setStaticQrConfirmOpen(false);
   }, [booking.paymentMethod]);
 
   if (!open) return null;
@@ -1476,12 +1487,6 @@ function BookingWizardModal({
                               </div>
                             )}
                             <div className="preferred-card__actions hk-actions">
-                              {hk.preferredWorkload > 0 && (
-                                <span className="pill soft amber">{hk.preferredWorkload} jobs/day</span>
-                              )}
-                              <span className="pill soft amber">
-                                {hk.bookingsToday} booking{hk.bookingsToday === 1 ? "" : "s"} today
-                              </span>
                               <button
                                 className="btn pill ghost"
                                 type="button"
@@ -1714,6 +1719,49 @@ function BookingWizardModal({
                 disabled={submitting}
               >
                 Yes, confirm cash payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {staticQrConfirmOpen && (
+        <div className="customer-modal">
+          <div
+            className="customer-modal__backdrop"
+            onClick={() => {
+              if (submitting) return;
+              setStaticQrConfirmOpen(false);
+            }}
+          />
+          <div className="customer-modal__panel" role="dialog" aria-modal="true" aria-label="Confirm static QR payment reminder">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-qrcode"></i>
+            </div>
+            <h4>Confirm Static QR Payment</h4>
+            <p>
+              Please complete the payment first after submitting your request. Staff can only
+              accept your booking once your payment is marked as paid.
+            </p>
+            <div className="customer-modal__actions">
+              <button
+                type="button"
+                className="btn pill ghost"
+                onClick={() => setStaticQrConfirmOpen(false)}
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn pill primary"
+                onClick={() => {
+                  setStaticQrConfirmAgreed(true);
+                  setStaticQrConfirmOpen(false);
+                  submitRequest();
+                }}
+                disabled={submitting}
+              >
+                Yes, I understand
               </button>
             </div>
           </div>
