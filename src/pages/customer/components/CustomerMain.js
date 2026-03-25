@@ -277,7 +277,11 @@ function CustomerMain({
                 </span>
               </div>
               <div className="status-card__actions">
-                <button className="btn pill ghost" type="button" onClick={() => onOpenLatestRequestDetails?.()}>
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() => onOpenLatestRequestDetails?.(latestRequest)}
+                >
                   View details
                 </button>
               </div>
@@ -648,11 +652,7 @@ function CustomerMain({
               </div>
               <div>
                 <span className="muted tiny">Experience</span>
-                <strong>
-                  {activeStaff.experienceYears
-                    ? `${activeStaff.experienceYears} yrs`
-                    : activeStaff.experienceNotes || "—"}
-                </strong>
+                <strong>{activeStaff.previousPosition || activeStaff.experienceNotes || "—"}</strong>
               </div>
               {activeStaff.experienceNotes && (
                 <div className="staff-modal__full">
@@ -690,3 +690,4 @@ function CustomerMain({
 }
 
 export default CustomerMain;
+

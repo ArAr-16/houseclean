@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CustomerChrome, { useCustomerChrome } from "./CustomerChrome";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword
+} from "firebase/auth";
 import { ref as rtdbRef, update as rtdbUpdate } from "firebase/database";
-import { rtdb } from "../../firebase";
+import { auth, rtdb } from "../../firebase";
 
 const DEFAULT_CITY = "Dagupan City";
 const DEFAULT_COUNTRY = "Philippines";
@@ -36,6 +41,14 @@ function CustomerSettingsInner() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -206,6 +219,86 @@ function CustomerSettingsInner() {
     }
   };
 
+  const handlePasswordFieldChange = (field, value) => {
+    setPasswordError("");
+    setPasswordSuccess("");
+    const nextValue = field === "currentPassword" || field === "newPassword" || field === "confirmPassword"
+      ? value.replace(/\s/g, "")
+      : value;
+    setPasswordForm((prev) => ({ ...prev, [field]: nextValue }));
+  };
+
+  const handlePasswordChange = async () => {
+    const currentUser = auth.currentUser;
+    const email = String(currentUser?.email || ctx.profile?.email || "").trim();
+    const currentPassword = String(passwordForm.currentPassword || "");
+    const newPassword = String(passwordForm.newPassword || "");
+    const confirmPassword = String(passwordForm.confirmPassword || "");
+
+    if (!currentUser || !email) {
+      setPasswordError("Please sign in again before changing your password.");
+      return;
+    }
+    if (passwordSaving) return;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("Fill in your current password, new password, and confirmation.");
+      return;
+    }
+    if (/\s/.test(currentPassword) || /\s/.test(newPassword) || /\s/.test(confirmPassword)) {
+      setPasswordError("Passwords cannot contain spaces.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation do not match.");
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setPasswordError("Choose a new password that is different from your current password.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    setPasswordError("");
+    setPasswordSuccess("");
+    try {
+      const credential = EmailAuthProvider.credential(email, currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+      await updatePassword(currentUser, newPassword);
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: ""
+      });
+      setShowCurrent(false);
+      setShowNew(false);
+      setShowConfirm(false);
+      setPasswordSuccess("Password updated successfully.");
+    } catch (err) {
+      const code = String(err?.code || "").trim();
+      if (
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/user-mismatch"
+      ) {
+        setPasswordError("Your current password is incorrect.");
+      } else if (code === "auth/weak-password") {
+        setPasswordError("Choose a stronger password with at least 6 characters.");
+      } else if (code === "auth/too-many-requests") {
+        setPasswordError("Too many attempts. Please wait a moment and try again.");
+      } else if (code === "auth/requires-recent-login") {
+        setPasswordError("For security, please sign out and sign back in before changing your password.");
+      } else {
+        setPasswordError("Unable to change password right now. Please try again.");
+      }
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <>
       <section className="panel card profile-card" id="profile">
@@ -314,7 +407,12 @@ function CustomerSettingsInner() {
               <label className="form-field">
                 Current password
                 <div className="input-icon">
-                  <input type={showCurrent ? "text" : "password"} placeholder="Current password" disabled />
+                  <input
+                    type={showCurrent ? "text" : "password"}
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => handlePasswordFieldChange("currentPassword", e.target.value)}
+                    placeholder="Current password"
+                  />
                   <button type="button" className="icon-btn ghost" onClick={() => setShowCurrent((v) => !v)}>
                     <i className={`fas ${showCurrent ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
@@ -324,7 +422,12 @@ function CustomerSettingsInner() {
               <label className="form-field">
                 New password
                 <div className="input-icon">
-                  <input type={showNew ? "text" : "password"} placeholder="New password" disabled />
+                  <input
+                    type={showNew ? "text" : "password"}
+                    value={passwordForm.newPassword}
+                    onChange={(e) => handlePasswordFieldChange("newPassword", e.target.value)}
+                    placeholder="New password"
+                  />
                   <button type="button" className="icon-btn ghost" onClick={() => setShowNew((v) => !v)}>
                     <i className={`fas ${showNew ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
@@ -334,7 +437,12 @@ function CustomerSettingsInner() {
               <label className="form-field">
                 Confirm password
                 <div className="input-icon">
-                  <input type={showConfirm ? "text" : "password"} placeholder="Confirm password" disabled />
+                  <input
+                    type={showConfirm ? "text" : "password"}
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => handlePasswordFieldChange("confirmPassword", e.target.value)}
+                    placeholder="Confirm password"
+                  />
                   <button type="button" className="icon-btn ghost" onClick={() => setShowConfirm((v) => !v)}>
                     <i className={`fas ${showConfirm ? "fa-eye-slash" : "fa-eye"}`}></i>
                   </button>
@@ -342,11 +450,21 @@ function CustomerSettingsInner() {
               </label>
             </div>
             <div className="form-actions">
+              <button
+                className="btn pill ghost"
+                type="button"
+                onClick={handlePasswordChange}
+                disabled={passwordSaving}
+              >
+                {passwordSaving ? "Updating password..." : "Change password"}
+              </button>
               <button className="btn pill primary" type="button" onClick={handleSave} disabled={saving}>
                 {saving ? "Saving..." : "Save changes"}
               </button>
               {error && <span className="error-note">{error}</span>}
               {success && <span className="success-note">{success}</span>}
+              {passwordError && <span className="error-note">{passwordError}</span>}
+              {passwordSuccess && <span className="success-note">{passwordSuccess}</span>}
             </div>
           </div>
         </div>

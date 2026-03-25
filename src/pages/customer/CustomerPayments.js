@@ -11,6 +11,7 @@ import {
 } from "firebase/database";
 import { rtdb } from "../../firebase";
 import { logAdminHistory } from "../../utils/adminHistory";
+import hcCorpStaticQr from "../../assets/payments/hc-corp-static-qr.png";
 
 function moneyLabel(value) {
   const n = typeof value === "number" ? value : Number(value);
@@ -266,6 +267,7 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
   const [txnByRequest, setTxnByRequest] = useState({});
   const [savingId, setSavingId] = useState("");
   const [activePayment, setActivePayment] = useState(null);
+  const [showQrPreviewModal, setShowQrPreviewModal] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [billingTab, setBillingTab] = useState("pending");
   const [refundTarget, setRefundTarget] = useState(null);
@@ -327,6 +329,15 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     setRefundReason("");
     setRefundError("");
     setShowRefundModal(true);
+  };
+
+  const downloadQrCodeImage = () => {
+    const link = document.createElement("a");
+    link.href = hcCorpStaticQr;
+    link.download = "hc-corp-static-qr.png";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const handleSubmitRefund = async () => {
@@ -499,7 +510,13 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
             </div>
             <div className="pay-steps">
               <span>1. Open your GCash/Maya app.</span>
-              <span>2. Scan the QR code.</span>
+              <button
+                type="button"
+                className="text-btn pay-steps__button"
+                onClick={() => setShowQrPreviewModal(true)}
+              >
+                2. Scan this QR code.
+              </button>
               <span>3. Enter the invoice amount.</span>
               <span>4. Input the transaction ID on payment page.</span>
             </div>
@@ -702,23 +719,7 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
                     }))
                   }
                 />
-                                  <button
-                    className="btn pill primary"
-                    type="button"
-                    disabled={
-                      !String(txnByRequest[String(activePayment.id || activePayment.requestId || "")] || "").trim() ||
-                      savingId === String(activePayment.id || activePayment.requestId || "")
-                    }
-                    onClick={() => {
-                      handleSubmitQr(activePayment);
-                      setActivePayment(null);
-                    }}
-                  >
-                    {savingId === String(activePayment.id || activePayment.requestId || "")
-                      ? "Saving..."
-                      : "Submit QR Payment"}
-                  </button>
-                {/* <div className="track-modal__actions">
+                <div className="track-modal__actions">
                   <button
                     className="btn pill primary"
                     type="button"
@@ -735,7 +736,14 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
                       ? "Saving..."
                       : "Submit QR Payment"}
                   </button>
-                </div> */}
+                                    <button
+                    className="btn pill ghost text-btn"
+                    type="button"
+                    onClick={() => setShowQrPreviewModal(true)}
+                  >
+                    Scan this QR code
+                  </button>
+                </div>
               </div>
             )}
             {canConfirmCash && (
@@ -804,6 +812,29 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
           </div>
         </div>
       )}
+      {showQrPreviewModal && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowQrPreviewModal(false)} />
+          <div className="customer-modal__panel qr-preview-modal" role="dialog" aria-modal="true" aria-label="Static QR code preview">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-qrcode"></i>
+            </div>
+            <h4>Scan this QR code</h4>
+            <p className="muted small">Use this official HC Corp QR code for static QR payments.</p>
+            <div className="qr-preview-modal__card">
+              <img src={hcCorpStaticQr} alt="HC Corp static QR code" className="qr-preview-modal__image" />
+            </div>
+            <div className="customer-modal__actions">
+              <button className="btn pill ghost text-btn" type="button" onClick={downloadQrCodeImage}>
+                Download this QR code
+              </button>
+              <button className="btn pill ghost" type="button" onClick={() => setShowQrPreviewModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showRefundModal && refundTarget && (
         <div className="customer-modal">
@@ -851,6 +882,3 @@ function CustomerPaymentsInner({ paymentMethods, selectedMethod, setSelectedMeth
     </>
   );
 }
-
-
-

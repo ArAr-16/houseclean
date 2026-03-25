@@ -155,6 +155,20 @@ function CustomerRequests() {
   const navigate = useNavigate();
   const pathname = String(location?.pathname || "");
   const isRequestsRoute = pathname.includes("/requests");
+  const storedOpenTrackFor = (() => {
+    try {
+      return String(sessionStorage.getItem("hc_customer_open_track_for") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  })();
+  const storedAutoOpenTrackModal = (() => {
+    try {
+      return sessionStorage.getItem("hc_customer_open_track_modal") === "1";
+    } catch (_) {
+      return false;
+    }
+  })();
 
   useEffect(() => {
     if (!isRequestsRoute) return;
@@ -190,9 +204,17 @@ function CustomerRequests() {
         setShowSubmittedModal={setShowSubmittedModal}
         pendingFeedbackId={pendingFeedbackId}
         clearPendingFeedback={() => setPendingFeedbackId("")}
-        openTrackFor={String(location?.state?.openTrackFor || "").trim()}
-        autoOpenTrackModal={Boolean(location?.state?.openTrackModal)}
-        clearRouteState={() => navigate(location.pathname, { replace: true, state: {} })}
+        openTrackFor={String(location?.state?.openTrackFor || storedOpenTrackFor || "").trim()}
+        autoOpenTrackModal={Boolean(location?.state?.openTrackModal) || storedAutoOpenTrackModal}
+        clearRouteState={() => {
+          try {
+            sessionStorage.removeItem("hc_customer_open_track_for");
+            sessionStorage.removeItem("hc_customer_open_track_modal");
+          } catch (_) {
+            // Ignore storage cleanup issues.
+          }
+          navigate(location.pathname, { replace: true, state: {} });
+        }}
         isActiveRoute={isRequestsRoute}
       />
     </CustomerChrome>
@@ -1295,4 +1317,3 @@ function CustomerRequestsInner({
     </>
   );
 }
-

@@ -557,6 +557,11 @@
   background: #fff;
   font-size: 13px;
 }
+.form-field input[readonly] {
+  background: #f6f8fc;
+  color: #7b8798;
+  cursor: not-allowed;
+}
 .form-field input:disabled {
   background: #f6f8fc;
   color: #7b8798;
@@ -588,6 +593,7 @@ html.dark-mode .input-icon .icon-btn.ghost {
   justify-content: flex-end;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 .form-field.full {
   grid-column: 1 / -1;
@@ -2691,6 +2697,8 @@ html.dark-mode .customer-metric strong {
   display: grid;
   place-items: center;
   pointer-events: none;
+  padding: 16px;
+  overflow-y: auto;
 }
 
 .customer-modal__backdrop {
@@ -2708,12 +2716,15 @@ html.dark-mode .customer-metric strong {
   border-radius: 16px;
   padding: 24px 26px;
   width: min(420px, 92vw);
+  max-height: min(calc(100vh - 32px), calc(100dvh - 32px));
+  overflow-y: auto;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.25);
   display: grid;
   gap: 12px;
   text-align: center;
   animation: modalPop 0.22s ease;
   pointer-events: auto;
+  overscroll-behavior: contain;
 }
 
 .customer-modal__icon {
@@ -2820,6 +2831,54 @@ html.dark-mode .customer-metric strong {
   justify-content: flex-start;
   margin-top: 10px;
   gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.text-btn {
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  color: #0f6a8b;
+  font-weight: 700;
+  text-decoration: underline;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.text-btn:hover {
+  color: #0a4c64;
+  background: transparent;
+}
+
+.text-btn:focus-visible {
+  outline: 2px solid rgba(15, 106, 139, 0.28);
+  outline-offset: 3px;
+}
+
+.pay-steps__button {
+  justify-self: start;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.qr-preview-modal {
+  width: min(460px, 92vw);
+}
+
+.qr-preview-modal__card {
+  display: flex;
+  justify-content: center;
+  padding: 10px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef5f9 100%);
+  border: 1px solid #e1e8ef;
+  border-radius: 18px;
+}
+
+.qr-preview-modal__image {
+  width: min(100%, 280px);
+  height: auto;
+  display: block;
 }
 
 .feedback-modal {

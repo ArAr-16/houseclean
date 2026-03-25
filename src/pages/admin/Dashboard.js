@@ -4,7 +4,11 @@ import "../../components/Admin.css";
 import AdminSidebar from "../../components/AdminSidebar";
 import { auth, rtdb } from "../../firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { onValue, ref, update as rtdbUpdate } from "firebase/database";
+import {
+  onValue,
+  ref,
+  update as rtdbUpdate
+} from "firebase/database";
 import { Link, useLocation } from "react-router-dom";
 
 const dayMs = 24 * 60 * 60 * 1000;
@@ -146,6 +150,7 @@ function Dashboard() {
     });
     return () => unsub();
   }, [refreshTick]);
+
 
   const markRead = (id, status = "read") =>
     rtdbUpdate(ref(rtdb, `AdminNotifications/${id}`), { status }).catch(() => {});
@@ -619,6 +624,7 @@ function Dashboard() {
               </div>
             </div>
           </div>
+
         </main>
 
         <aside className="dash-rail">

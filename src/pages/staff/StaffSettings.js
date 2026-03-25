@@ -1,4 +1,10 @@
 import React from "react";
+import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword
+} from "firebase/auth";
+import { auth } from "../../firebase";
 import Staff from "./Staff";
 import { STAFF_SETTINGS_SECTIONS } from "./staffVisibleSections";
 
@@ -12,6 +18,104 @@ function StaffSettings() {
 }
 
 function StaffSettingsContent({ ctx }) {
+  const [passwordForm, setPasswordForm] = React.useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [passwordSaving, setPasswordSaving] = React.useState(false);
+  const [passwordError, setPasswordError] = React.useState("");
+  const [passwordSuccess, setPasswordSuccess] = React.useState("");
+  const [showCurrent, setShowCurrent] = React.useState(false);
+  const [showNew, setShowNew] = React.useState(false);
+  const [showConfirm, setShowConfirm] = React.useState(false);
+
+  const handlePasswordFieldChange = (field, value) => {
+    setPasswordError("");
+    setPasswordSuccess("");
+    setPasswordForm((prev) => ({ ...prev, [field]: value.replace(/\s/g, "") }));
+  };
+
+  const handlePasswordChange = async () => {
+    const currentUser = auth.currentUser;
+    const email = String(currentUser?.email || ctx.profileForm?.email || "").trim();
+    const currentPassword = String(passwordForm.currentPassword || "");
+    const newPassword = String(passwordForm.newPassword || "");
+    const confirmPassword = String(passwordForm.confirmPassword || "");
+
+    if (!currentUser || !email) {
+      setPasswordError("Please sign in again before changing your password.");
+      return;
+    }
+    if (passwordSaving) return;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("Fill in your current password, new password, and confirmation.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation do not match.");
+      return;
+    }
+    if (currentPassword === newPassword) {
+      setPasswordError("Choose a new password that is different from your current password.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    setPasswordError("");
+    setPasswordSuccess("");
+    try {
+      const credential = EmailAuthProvider.credential(email, currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+      await updatePassword(currentUser, newPassword);
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: ""
+      });
+      setShowCurrent(false);
+      setShowNew(false);
+      setShowConfirm(false);
+      setPasswordSuccess("Password updated successfully.");
+    } catch (err) {
+      const code = String(err?.code || "").trim();
+      if (
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/user-mismatch"
+      ) {
+        setPasswordError("Your current password is incorrect.");
+      } else if (code === "auth/weak-password") {
+        setPasswordError("Choose a stronger password with at least 6 characters.");
+      } else if (code === "auth/too-many-requests") {
+        setPasswordError("Too many attempts. Please wait a moment and try again.");
+      } else if (code === "auth/requires-recent-login") {
+        setPasswordError("For security, please sign out and sign back in before changing your password.");
+      } else {
+        setPasswordError("Unable to change password right now. Please try again.");
+      }
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
+  const handleSaveAllChanges = async () => {
+    if (typeof ctx.handleStaffProfileSave === "function") {
+      await Promise.resolve(ctx.handleStaffProfileSave());
+    }
+    if (
+      passwordForm.currentPassword ||
+      passwordForm.newPassword ||
+      passwordForm.confirmPassword
+    ) {
+      await handlePasswordChange();
+    }
+  };
+
   return (
     <section className="panel card settings-card" id="staff-settings">
       <div className="panel-header">
@@ -75,17 +179,7 @@ function StaffSettingsContent({ ctx }) {
           />
           {ctx.staffProfileErrors.lastName && <span className="form-error">{ctx.staffProfileErrors.lastName}</span>}
         </label>
-        <label>
-          Email *
-          <input
-            type="email"
-            value={ctx.profileForm.email || ""}
-            onChange={(e) => ctx.updateField("email", e.target.value)}
-            placeholder="maria@example.com"
-          />
-          {ctx.staffProfileErrors.email && <span className="form-error">{ctx.staffProfileErrors.email}</span>}
-        </label>
-        <label>
+                <label>
           Contact number *
           <input
             type="text"
@@ -94,6 +188,70 @@ function StaffSettingsContent({ ctx }) {
             placeholder="09XXXXXXXXX"
           />
           {ctx.staffProfileErrors.contact && <span className="form-error">{ctx.staffProfileErrors.contact}</span>}
+        </label>
+        <label>
+          Email *
+          <input
+            type="email"
+            value={ctx.profileForm.email || ""}
+            readOnly
+          />
+          {ctx.staffProfileErrors.email && <span className="form-error">{ctx.staffProfileErrors.email}</span>}
+        </label>
+        <label>
+          Current password
+          <div className="staff-password-field">
+            <input
+              type={showCurrent ? "text" : "password"}
+              value={passwordForm.currentPassword}
+              onChange={(e) => handlePasswordFieldChange("currentPassword", e.target.value)}
+              placeholder="Current password"
+            />
+            <button
+              type="button"
+              className="staff-password-toggle"
+              onClick={() => setShowCurrent((prev) => !prev)}
+            >
+              <i className={`fas ${showCurrent ? "fa-eye-slash" : "fa-eye"}`}></i>
+            </button>
+          </div>
+        </label>
+
+        <label>
+          New password
+          <div className="staff-password-field">
+            <input
+              type={showNew ? "text" : "password"}
+              value={passwordForm.newPassword}
+              onChange={(e) => handlePasswordFieldChange("newPassword", e.target.value)}
+              placeholder="New password"
+            />
+            <button
+              type="button"
+              className="staff-password-toggle"
+              onClick={() => setShowNew((prev) => !prev)}
+            >
+              <i className={`fas ${showNew ? "fa-eye-slash" : "fa-eye"}`}></i>
+            </button>
+          </div>
+        </label>
+        <label className="staff-password-field">
+          Confirm new password
+          <div className="staff-password-field">
+            <input
+              type={showConfirm ? "text" : "password"}
+              value={passwordForm.confirmPassword}
+              onChange={(e) => handlePasswordFieldChange("confirmPassword", e.target.value)}
+              placeholder="Confirm new password"
+            />
+            <button
+              type="button"
+              className="staff-password-toggle"
+              onClick={() => setShowConfirm((prev) => !prev)}
+            >
+              <i className={`fas ${showConfirm ? "fa-eye-slash" : "fa-eye"}`}></i>
+            </button>
+          </div>
         </label>
         <label className="full">
           House Number/Street *
@@ -195,35 +353,17 @@ function StaffSettingsContent({ ctx }) {
           {ctx.staffProfileErrors.availability && (
             <span className="form-error">{ctx.staffProfileErrors.availability}</span>
           )}
+          <span className="muted tiny">Default availability is 9:00 AM to 5:00 PM. You can adjust it if needed.</span>
         </div>
 
         <label>
-          Experience (years) *
+          Previous position (optional)
           <input
-            type="number"
-            min="1"
-            max="50"
-            value={ctx.profileForm.experienceYears || ""}
-            onChange={(e) => ctx.updateField("experienceYears", e.target.value)}
-            placeholder="5"
+            type="text"
+            value={ctx.profileForm.previousPosition || ""}
+            onChange={(e) => ctx.updateField("previousPosition", e.target.value)}
+            placeholder="Example: Hotel Housekeeping Attendant"
           />
-          {ctx.staffProfileErrors.experienceYears && (
-            <span className="form-error">{ctx.staffProfileErrors.experienceYears}</span>
-          )}
-        </label>
-        <label>
-          Preferred workload (jobs/day) *
-          <input
-            type="number"
-            min="1"
-            max="10"
-            value={ctx.profileForm.preferredWorkload || ""}
-            onChange={(e) => ctx.updateField("preferredWorkload", e.target.value)}
-            placeholder="3"
-          />
-          {ctx.staffProfileErrors.preferredWorkload && (
-            <span className="form-error">{ctx.staffProfileErrors.preferredWorkload}</span>
-          )}
         </label>
         <label className="full">
           Experience details (optional)
@@ -233,10 +373,6 @@ function StaffSettingsContent({ ctx }) {
             onChange={(e) => ctx.updateField("experienceNotes", e.target.value)}
             placeholder="Brief description of your experience..."
           />
-        </label>
-        <label>
-          Rating
-          <input type="text" value={`Rating ${Number(ctx.profileForm.rating || 0).toFixed(1)}`} readOnly />
         </label>
       </div>
       <div className="settings-actions">
@@ -251,11 +387,13 @@ function StaffSettingsContent({ ctx }) {
         <button
           className="btn pill primary"
           type="button"
-          onClick={ctx.handleStaffProfileSave}
-          disabled={ctx.staffProfileSaving}
+          onClick={handleSaveAllChanges}
+          disabled={ctx.staffProfileSaving || passwordSaving}
         >
-          {ctx.staffProfileSaving ? "Saving..." : "Save changes"}
+          {ctx.staffProfileSaving || passwordSaving ? "Saving..." : "Save changes"}
         </button>
+        {passwordError && <span className="form-error">{passwordError}</span>}
+        {passwordSuccess && <span className="success-note">{passwordSuccess}</span>}
       </div>
 
       <div className="theme-card">

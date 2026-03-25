@@ -50,6 +50,12 @@ function StaffMain({
   handleStaffProfileSave,
   handleStaffProfileReset,
   showProfilePrompt,
+  requiresStaffEmailVerification = false,
+  verificationStatus = "idle",
+  verificationMessage = "",
+  verificationBusy = false,
+  handleResendVerification,
+  handleCheckVerification,
   profileToast,
   onDismissProfileToast,
   renderDashboardSection,
@@ -928,6 +934,12 @@ function StaffMain({
     handleStaffProfileReset,
     staffProfileSaving,
     handleStaffProfileSave,
+    requiresStaffEmailVerification,
+    verificationStatus,
+    verificationMessage,
+    verificationBusy,
+    handleResendVerification,
+    handleCheckVerification,
     themeMode,
     setThemeMode
   };
@@ -966,10 +978,10 @@ function StaffMain({
         <div className="staff-blocking-modal" role="dialog" aria-modal="true" aria-label="Complete staff profile">
           <div className="staff-blocking-modal__backdrop" />
           <div className="staff-blocking-modal__panel">
-            <h3>Complete Your Staff Profile</h3>
+            <h3>Complete Your Housekeeper Profile</h3>
             <p>
-              Welcome! Please complete your staff profile. This information will be saved to your account and shown to
-              customers when they book and select staff. Fields marked * are required.
+              Welcome! Please complete your Housekeeper profile. This information will be saved to your account and shown to
+              Householder when they book and select Housekeeper. Fields marked * are required.
             </p>
             <div className="avatar-uploader">
               <p className="mini-label">Choose an avatar</p>
@@ -1022,12 +1034,11 @@ function StaffMain({
                 <input
                   type="email"
                   value={profileForm.email || ""}
-                  onChange={(e) => updateField("email", e.target.value)}
-                  placeholder="maria@example.com"
+                  readOnly
                 />
                 {staffProfileErrors.email && <span className="form-error">{staffProfileErrors.email}</span>}
               </label>
-              <label>
+                <label>
                 Contact number *
                 <input
                   type="text"
@@ -1037,6 +1048,41 @@ function StaffMain({
                 />
                 {staffProfileErrors.contact && <span className="form-error">{staffProfileErrors.contact}</span>}
               </label>
+              {requiresStaffEmailVerification && (
+                <div className="full staff-verification-card">
+                  <div className="staff-verification-card__copy">
+                    <strong>Verify this email before continuing</strong>
+                    <span>{verificationMessage || "Please verify your email before completing your first staff login."}</span>
+                  </div>
+                  <div className="staff-verification-card__actions">
+                    {verificationStatus === "verified" ? (
+                      <button type="button" className="btn pill primary" disabled>
+                        Verified email
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn pill primary"
+                          onClick={handleResendVerification}
+                          disabled={verificationBusy}
+                        >
+                          {verificationBusy ? "Please wait..." : verificationStatus === "sent" ? "Resend verification link" : "Send verification link"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn pill ghost"
+                          onClick={handleCheckVerification}
+                          disabled={verificationBusy}
+                        >
+                          I&apos;ve verified
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <label className="full">
                 House Number/Street *
                 <input
@@ -1133,34 +1179,16 @@ function StaffMain({
                   </div>
                 </div>
                 {staffProfileErrors.availability && <span className="form-error">{staffProfileErrors.availability}</span>}
+                <span className="muted tiny">Default availability is 9:00 AM to 5:00 PM. You can adjust it if needed.</span>
               </div>
               <label>
-                Experience (years) *
+                Previous position (optional)
                 <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={profileForm.experienceYears || ""}
-                  onChange={(e) => updateField("experienceYears", e.target.value)}
-                  placeholder="5"
+                  type="text"
+                  value={profileForm.previousPosition || ""}
+                  onChange={(e) => updateField("previousPosition", e.target.value)}
+                  placeholder="Example: Hotel Housekeeping Attendant"
                 />
-                {staffProfileErrors.experienceYears && (
-                  <span className="form-error">{staffProfileErrors.experienceYears}</span>
-                )}
-              </label>
-              <label>
-                Preferred workload (jobs/day) *
-                <input
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={profileForm.preferredWorkload || ""}
-                  onChange={(e) => updateField("preferredWorkload", e.target.value)}
-                  placeholder="3"
-                />
-                {staffProfileErrors.preferredWorkload && (
-                  <span className="form-error">{staffProfileErrors.preferredWorkload}</span>
-                )}
               </label>
               <label className="full">
                 Experience details (optional)

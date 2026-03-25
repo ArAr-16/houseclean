@@ -76,6 +76,9 @@ const DEFAULT_SERVICE_OPTIONS = [
   }
 ];
 
+const BUSINESS_START_MINUTES = 9 * 60;
+const BUSINESS_END_MINUTES = 18 * 60;
+
 const AVATAR_PRESETS = {
   mop:
     "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\"><circle cx=\"48\" cy=\"48\" r=\"46\" fill=\"#E0F2FE\" stroke=\"#0EA5E9\" stroke-width=\"2\"/><rect x=\"45\" y=\"18\" width=\"6\" height=\"42\" rx=\"3\" fill=\"#0EA5E9\"/><rect x=\"34\" y=\"54\" width=\"28\" height=\"8\" rx=\"4\" fill=\"#38BDF8\"/><path d=\"M28 62c6 10 34 10 40 0\" fill=\"none\" stroke=\"#0EA5E9\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg>",
@@ -128,7 +131,6 @@ function BookingWizardModal({
   const [bookingStep, setBookingStep] = useState(1);
   const [booking, setBooking] = useState({
     serviceTypes: [],
-    durationHours: 1,
     startAt: "",
     housekeeperId: "",
     housekeeperName: "",
@@ -214,18 +216,8 @@ function BookingWizardModal({
   }, [priceRange.max, priceRange.min]);
   const uid = authUser?.uid || "";
 
-  const clampHours = (value) => {
-    const hours = Number(value);
-    if (!Number.isFinite(hours)) return 1;
-    return Math.min(8, Math.max(1, Math.round(hours)));
-  };
-
   const setBookingFields = (patch) => {
-    const next = { ...(patch || {}) };
-    if (Object.prototype.hasOwnProperty.call(next, "durationHours")) {
-      next.durationHours = clampHours(next.durationHours);
-    }
-    setBooking((prev) => ({ ...prev, ...next }));
+    setBooking((prev) => ({ ...prev, ...(patch || {}) }));
   };
 
   const handlePhotosChange = (e) => {
@@ -284,7 +276,6 @@ function BookingWizardModal({
     setBookingStep(1);
     setBooking({
       serviceTypes: [],
-      durationHours: 1,
       startAt: "",
       housekeeperId: "",
       housekeeperName: "",
@@ -341,7 +332,7 @@ function BookingWizardModal({
     });
   }, [open]);
 
-  const isWithinBusinessHours = (value, hours, minStartMinutesValue) => {
+  const isWithinBusinessHours = (value, minStartMinutesValue) => {
     if (!value) return false;
     const parts = String(value).split("T");
     if (parts.length < 2) return false;
@@ -353,13 +344,9 @@ function BookingWizardModal({
     const minParts = String(minDateTime || "").split("T");
     const minDatePart = minParts[0] || "";
     const needsGap = Boolean(minDatePart) && datePart === minDatePart;
-    const start = Math.max(9 * 60, needsGap ? Number(minStartMinutesValue) || 0 : 0);
-    const lastCustomerStart = 17 * 60;
-    const staffCutoff = 18 * 60;
-    const durationMins = Math.max(1, Number(hours) || 1) * 60;
-    const endTime = minutes + durationMins;
-    if (minutes < start || minutes > lastCustomerStart) return false;
-    return endTime <= staffCutoff;
+    const start = Math.max(BUSINESS_START_MINUTES, needsGap ? Number(minStartMinutesValue) || 0 : 0);
+    if (start > BUSINESS_END_MINUTES) return false;
+    return minutes >= start && minutes <= BUSINESS_END_MINUTES;
   };
 
   const normalizeText = (value) => String(value || "").trim().toLowerCase();
@@ -501,9 +488,8 @@ function BookingWizardModal({
               preferredService: String(u.preferredService || "").trim(),
               skills: Array.isArray(u.skills) ? u.skills : [],
               serviceAreas: Array.isArray(u.serviceAreas) ? u.serviceAreas : [],
-              preferredWorkload: Number(u.preferredWorkload || 0) || 0,
               rating: Number(u.rating || u.averageRating || u.stars || 0) || 0,
-              experienceYears: Number(u.experienceYears || u.yearsExperience || u.experience || u.years || 0) || 0,
+              previousPosition: String(u.previousPosition || "").trim(),
               experienceNotes: String(u.experienceNotes || "").trim(),
               avatarUrl: createAvatarDataUri(u.avatarSeed || "mop")
             };
@@ -582,7 +568,7 @@ function BookingWizardModal({
     } else {
       setScheduleTime("");
     }
-  }, [booking.startAt, booking.durationHours, booking.serviceTypes, open]);
+  }, [booking.startAt, booking.serviceTypes, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -604,10 +590,6 @@ function BookingWizardModal({
     setError("");
     if (!Array.isArray(booking.serviceTypes) || booking.serviceTypes.length === 0) {
       setError("Please choose at least one service type.");
-      return false;
-    }
-    if (booking.durationHours < 1 || booking.durationHours > 8) {
-      setError("Cleaning hours must be between 1 and 8 hours.");
       return false;
     }
     if (!booking.paymentMethod) {
@@ -633,8 +615,8 @@ function BookingWizardModal({
       setError("Please choose a schedule within the next 30 days.");
       return false;
     }
-    if (!isWithinBusinessHours(booking.startAt, booking.durationHours)) {
-      setTimeError("You can start between 9:00 AM and 5:00 PM; services must finish by 6:00 PM.");
+    if (!isWithinBusinessHours(booking.startAt)) {
+      setTimeError("Choose a start time within 9:00 AM to 6:00 PM.");
       return false;
     }
     if (!availabilityChecked) {
@@ -678,8 +660,6 @@ function BookingWizardModal({
   const step1Ready =
     Array.isArray(booking.serviceTypes) &&
     booking.serviceTypes.length > 0 &&
-    booking.durationHours >= 1 &&
-    booking.durationHours <= 8 &&
     Boolean(booking.paymentMethod);
 
   const step2Ready =
@@ -687,7 +667,7 @@ function BookingWizardModal({
     Boolean(booking.startAt) &&
     (!minDateTime || booking.startAt >= minDateTime) &&
     (!maxDateTime || booking.startAt <= maxDateTime) &&
-    isWithinBusinessHours(booking.startAt, booking.durationHours, minStartMinutes) &&
+    isWithinBusinessHours(booking.startAt, minStartMinutes) &&
     availabilityChecked &&
     Boolean(booking.housekeeperId);
 
@@ -704,12 +684,12 @@ function BookingWizardModal({
       setTimeError("Please choose a schedule within the next 30 days.");
       return;
     }
-    if (!isWithinBusinessHours(booking.startAt, booking.durationHours, minStartMinutes)) {
-      setTimeError("You can start between 9:00 AM and 5:00 PM; services must finish by 6:00 PM.");
+    if (!isWithinBusinessHours(booking.startAt, minStartMinutes)) {
+      setTimeError("Choose a start time within 9:00 AM to 6:00 PM.");
       return;
     }
     setTimeError("");
-  }, [booking.startAt, booking.durationHours, minDateTime, maxDateTime, minStartMinutes]);
+  }, [booking.startAt, minDateTime, maxDateTime, minStartMinutes]);
 
   const computeAvailability = () => {
     setAvailabilityError("");
@@ -726,11 +706,9 @@ function BookingWizardModal({
       setAvailabilityError("Please choose a valid schedule.");
       return null;
     }
-    const durationHours = clampHours(booking.durationHours);
     const serviceKeys = Array.isArray(booking.serviceTypes)
       ? booking.serviceTypes.map((s) => normalizeText(s)).filter(Boolean)
       : [];
-    const targetEnd = target.minutes + durationHours * 60;
     const isActiveStatus = (status) => ["pending", "confirmed", "accepted"].includes(normalizeText(status));
 
     const targetDate = new Date(booking.startAt);
@@ -765,18 +743,6 @@ function BookingWizardModal({
         return true;
       });
 
-      const hasOverlap = requestsToday.some((req) => {
-        const startRaw =
-          req.startDate ||
-          req.startAt ||
-          (req.date && req.time ? `${req.date} ● ${req.time}` : "") ||
-          "";
-        const parsed = parseDateTimeLocal(startRaw);
-        if (!parsed) return false;
-        const reqDuration = clampHours(req.durationHours || req.hours || req.duration || 1);
-        const reqEnd = parsed.minutes + reqDuration * 60;
-        return parsed.minutes < targetEnd && reqEnd > target.minutes;
-      });
       const hasSameDayBooking = requestsToday.length > 0;
 
       const availableDays = Array.isArray(hk.availabilityDays) ? hk.availabilityDays : [];
@@ -788,17 +754,15 @@ function BookingWizardModal({
           : allowedDays.includes(targetDayIndex);
       const staffStart = parseTimeToMinutes(hk.availabilityStart);
       const staffEnd = parseTimeToMinutes(hk.availabilityEnd);
-      const timeOk =
-        staffStart == null || staffEnd == null ? true : target.minutes >= staffStart && targetEnd <= staffEnd;
+      const timeOk = staffStart == null || staffEnd == null ? true : target.minutes >= staffStart && target.minutes <= staffEnd;
       const matchesAvailability = dayOk && timeOk;
 
-      const available = matchesService && matchesAvailability && !hasOverlap && !hasSameDayBooking;
+      const available = matchesService && matchesAvailability && !hasSameDayBooking;
       return {
         ...hk,
         available,
         matchesService,
         matchesAvailability,
-        hasOverlap,
         hasSameDayBooking,
         bookingsToday: requestsToday.length
       };
@@ -836,7 +800,6 @@ function BookingWizardModal({
 
   const getNextAvailableStartForStaff = (hk) => {
     if (!hk) return "";
-    const durationHours = clampHours(booking.durationHours);
     const minValue = minDateTime || "";
     const maxValue = maxDateTime || "";
     const minDate = minValue ? new Date(minValue) : new Date();
@@ -863,8 +826,7 @@ function BookingWizardModal({
       const staffStart = startMins ?? businessStart;
       const staffEnd = endMins ?? businessEnd;
       const start = Math.max(earliest, businessStart, staffStart);
-      const end = start + durationHours * 60;
-      if (end <= staffEnd && end <= businessEnd) {
+      if (start <= staffEnd && start <= businessEnd) {
         const pick = new Date(candidate.getTime());
         pick.setHours(Math.floor(start / 60), start % 60, 0, 0);
         return formatLocalDateTime(pick);
@@ -939,13 +901,11 @@ function BookingWizardModal({
     if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return [];
     const candidate = new Date(year, month - 1, day);
     const isSameDay = candidate.toDateString() === new Date().toDateString();
-    const minStart = Math.max(9 * 60, isSameDay ? minStartMinutes : 0);
-    const maxStart = 17 * 60;
-    const durationMins = clampHours(booking.durationHours) * 60;
+    const minStart = Math.max(BUSINESS_START_MINUTES, isSameDay ? minStartMinutes : 0);
+    const maxStart = BUSINESS_END_MINUTES;
 
     const options = [];
     for (let mins = minStart; mins <= maxStart; mins += 60) {
-      if (mins + durationMins > 18 * 60) continue;
       const hh = Math.floor(mins / 60);
       const mm = String(mins % 60).padStart(2, "0");
       options.push(`${String(hh).padStart(2, "0")}:${mm}`);
@@ -991,10 +951,6 @@ function BookingWizardModal({
       setError("Please choose at least one service type.");
       return false;
     }
-    if (booking.durationHours < 1 || booking.durationHours > 8) {
-      setError("Cleaning hours must be between 1 and 8 hours.");
-      return false;
-    }
     if (!booking.paymentMethod) {
       setError("Please choose a payment method.");
       return false;
@@ -1007,8 +963,8 @@ function BookingWizardModal({
       setError("Please choose a schedule within the next 30 days.");
       return false;
     }
-    if (!isWithinBusinessHours(booking.startAt, booking.durationHours)) {
-      setError("You can start between 9:00 AM and 5:00 PM; services must finish by 6:00 PM.");
+    if (!isWithinBusinessHours(booking.startAt)) {
+      setError("Choose a start time within 9:00 AM to 6:00 PM.");
       return false;
     }
     if (!booking.housekeeperId) {
@@ -1027,7 +983,6 @@ function BookingWizardModal({
       const requestRef = push(requestListRef);
       const requestId = requestRef.key;
 
-      const durationHours = Number(booking.durationHours) || 1;
       const primaryService = String(booking.serviceTypes[0] || "").trim();
       const paymentMethod = String(booking.paymentMethod || "").trim();
       const isCash = paymentMethod.toUpperCase() === "CASH_ON_HAND";
@@ -1055,7 +1010,6 @@ function BookingWizardModal({
         housekeeperRole: String(booking.housekeeperRole || ""),
         serviceType: primaryService,
         serviceTypes: booking.serviceTypes.map((s) => String(s).trim()).filter(Boolean),
-        durationHours,
         startDate: String(booking.startAt || "").trim(),
         paymentMethod,
         paymentStatus: isCash ? "RESERVED" : "PENDING",
@@ -1222,8 +1176,6 @@ function BookingWizardModal({
               disabled={
                 !Array.isArray(booking.serviceTypes) ||
                 booking.serviceTypes.length === 0 ||
-                booking.durationHours < 1 ||
-                booking.durationHours > 8 ||
                 !booking.paymentMethod
               }
             >
@@ -1308,7 +1260,6 @@ function BookingWizardModal({
                 </h3>
                 <p className="muted tiny">Final price may vary by location, property size, and scope.</p>
               </div>
-
               <div className="payment-block">
                 <p className="mini-label">Payment method</p>
                 <div className="payment-options">
@@ -1487,8 +1438,8 @@ function BookingWizardModal({
                                 <span className="muted tiny">
                                   {hk.contact ? `Contact: ${hk.contact}` : "Contact: --"}
                                 </span>
-                                {hk.experienceYears > 0 && (
-                                  <span className="muted tiny">{hk.experienceYears} yrs experience</span>
+                                {hk.previousPosition && (
+                                  <span className="muted tiny">{hk.previousPosition}</span>
                                 )}
                               </div>
                             </div>
@@ -1548,8 +1499,6 @@ function BookingWizardModal({
                                     ? "Service mismatch"
                                     : hk.hasSameDayBooking
                                       ? "Already booked that day"
-                                      : hk.hasOverlap
-                                        ? "Booked during this time"
                                         : "Unavailable";
                                     return (
                                       <div key={hk.id} className="preferred-card hk-card unavailable">
@@ -1562,8 +1511,8 @@ function BookingWizardModal({
                                         <span className="muted tiny">
                                           {hk.contact ? `Contact: ${hk.contact}` : "Contact: --"}
                                         </span>
-                                            {hk.experienceYears > 0 && (
-                                              <span className="muted tiny">{hk.experienceYears} yrs experience</span>
+                                            {hk.previousPosition && (
+                                              <span className="muted tiny">{hk.previousPosition}</span>
                                             )}
                                           </div>
                                         </div>
@@ -1756,7 +1705,7 @@ function BookingWizardModal({
             </div>
             <h4>Confirm Static QR Payment</h4>
             <p>
-              Please complete the payment first after submitting your request. Staff can only
+              Please complete the payment first after submitting your request. housekeeper can only
               accept your booking once your payment is marked as paid.
             </p>
             <div className="customer-modal__actions">
@@ -1836,11 +1785,8 @@ function BookingWizardModal({
                     {activeProfile.rating > 0 && (
                       <span className="pill soft blue">Rating {activeProfile.rating.toFixed(1)}</span>
                     )}
-                    {activeProfile.experienceYears > 0 && (
-                      <span className="pill soft green">{activeProfile.experienceYears} yrs experience</span>
-                    )}
-                    {activeProfile.preferredWorkload > 0 && (
-                      <span className="pill soft amber">{activeProfile.preferredWorkload} jobs/day</span>
+                    {activeProfile.previousPosition && (
+                      <span className="pill soft green">{activeProfile.previousPosition}</span>
                     )}
                   </div>
                   <div className="profile-grid">

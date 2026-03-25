@@ -104,7 +104,6 @@ function CustomerHeader({
                   <div>
                     <h4>{showGuest ? "Guest" : firstNameDisplay || displayName}</h4>
                     <p className="role">{showGuest ? "Preview mode" : roleLabel}</p>
-                    {!showGuest && <p className="muted small">{safeMeta || safeLocation || safeEmail}</p>}
                   </div>
                 </div>
               </div>

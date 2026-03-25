@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Logo from "../../components/Logo.png";
 import "./Staff.css";
 import { auth, rtdb } from "../../firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, sendEmailVerification } from "firebase/auth";
 import {
   equalTo,
   onValue,
@@ -24,7 +24,6 @@ import StaffMain from "./components/StaffMain";
 const STAFF_SERVICE_OPTIONS = [
   "House Cleaning",
   "Deep Cleaning",
-  "Move-out Cleaning",
   "Kitchen Cleaning",
   "Bathroom Cleaning",
   "Bedroom Cleaning",
@@ -62,6 +61,9 @@ function Staff({
   const [staffProfileErrors, setStaffProfileErrors] = useState({});
   const [staffProfileSaving, setStaffProfileSaving] = useState(false);
   const [profileToast, setProfileToast] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("idle");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const popoverRef = useRef(null);
 
   // Apply saved theme immediately to avoid flash on loader
@@ -176,23 +178,6 @@ function Staff({
     return `${days.join(", ")} ${to12Hour(start)}-${to12Hour(end)}`;
   };
 
-  useEffect(() => {
-    if (!profile?.id) return;
-    const end = String(profile?.availabilityEnd || "").trim();
-    const start = String(profile?.availabilityStart || "").trim();
-    const days = Array.isArray(profile?.availabilityDays) ? profile.availabilityDays : [];
-    const alreadyUpdated = profile?.availabilityEndUpdatedTo18 === true;
-    if (alreadyUpdated) return;
-    if (start === "09:00" && end === "17:00") {
-      const nextAvailability = formatAvailabilityLabel(days, start, "18:00");
-      rtdbUpdate(rtdbRef(rtdb, `Users/${profile.id}`), {
-        availabilityEnd: "18:00",
-        availability: nextAvailability,
-        availabilityEndUpdatedTo18: true
-      }).catch(() => {});
-    }
-  }, [profile?.id, profile?.availabilityEnd, profile?.availabilityStart, profile?.availabilityDays]);
-
   const buildStaffProfileForm = (data, useDefaults = true) => {
     const fullName = String(data?.fullName || data?.name || "").trim();
     const [first, ...rest] = fullName.split(" ").filter(Boolean);
@@ -216,10 +201,9 @@ function Staff({
       skills: safeSkills,
       availabilityDays: safeDays,
       availabilityStart: String(data?.availabilityStart || (useDefaults ? "09:00" : "")),
-      availabilityEnd: String(data?.availabilityEnd || (useDefaults ? "18:00" : "")),
-      experienceYears: String(data?.experienceYears || data?.experience || (useDefaults ? "1" : "")),
+      availabilityEnd: String(data?.availabilityEnd || (useDefaults ? "17:00" : "")),
+      previousPosition: String(data?.previousPosition || "").trim(),
       experienceNotes: String(data?.experienceNotes || ""),
-      preferredWorkload: String(data?.preferredWorkload || (useDefaults ? "3" : "")),
       rating: Number(data?.rating || 0) || 0
     };
   };
@@ -236,8 +220,23 @@ function Staff({
     return () => clearTimeout(timer);
   }, [profileToast]);
 
-  const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
+  useEffect(() => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setVerificationStatus("idle");
+      setVerificationMessage("");
+      return;
+    }
+    if (currentUser.emailVerified) {
+      setVerificationStatus("verified");
+      setVerificationMessage("Verified email");
+    } else {
+      setVerificationStatus("sent");
+      setVerificationMessage("Please verify your email before completing your first staff login.");
+    }
+  }, [profile?.id]);
 
+  const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
   const validateStaffProfile = (form) => {
     const errors = {};
     const alpha = /^[A-Za-z ]+$/;
@@ -255,8 +254,6 @@ function Staff({
     const days = Array.isArray(form?.availabilityDays) ? form.availabilityDays : [];
     const start = String(form?.availabilityStart || "").trim();
     const end = String(form?.availabilityEnd || "").trim();
-    const experienceYears = Number(form?.experienceYears);
-    const preferredWorkload = Number(form?.preferredWorkload);
 
     if (!firstName || firstName.length < 2 || !alpha.test(firstName)) {
       errors.firstName = "First name is required (letters only, min 2 characters).";
@@ -287,12 +284,6 @@ function Staff({
     } else if (start >= end) {
       errors.availability = "Start time must be earlier than end time.";
     }
-    if (!Number.isInteger(experienceYears) || experienceYears < 1 || experienceYears > 50) {
-      errors.experienceYears = "Experience must be a whole number between 1 and 50.";
-    }
-    if (!Number.isInteger(preferredWorkload) || preferredWorkload < 1 || preferredWorkload > 10) {
-      errors.preferredWorkload = "Preferred workload must be 1 to 10 jobs per day.";
-    }
     return errors;
   };
 
@@ -300,10 +291,58 @@ function Staff({
   const rawProfileForm = profile ? buildStaffProfileForm(profile, false) : null;
   const isProfileRecordComplete = rawProfileForm ? isStaffProfileComplete(rawProfileForm) : false;
   const showProfilePrompt = Boolean(isStaffRole && !profileLoading && profile && !isProfileRecordComplete);
+  const requiresStaffEmailVerification = Boolean(
+    showProfilePrompt && isHousekeeper && auth.currentUser && !auth.currentUser.emailVerified
+  );
+
+  const handleResendVerification = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser || verificationBusy) return;
+    try {
+      setVerificationBusy(true);
+      await sendEmailVerification(currentUser, {
+        url: `${window.location.origin}/login`,
+        handleCodeInApp: false
+      });
+      setVerificationStatus("sent");
+      setVerificationMessage("Verification link sent. Please check your email inbox.");
+    } catch (err) {
+      console.error("Staff verification resend error:", err);
+      setVerificationStatus("idle");
+      setVerificationMessage("We couldn't resend the verification link right now. Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser || verificationBusy) return;
+    try {
+      setVerificationBusy(true);
+      await currentUser.reload();
+      if (auth.currentUser?.emailVerified) {
+        setVerificationStatus("verified");
+        setVerificationMessage("Verified email");
+        setProfile((prev) => (prev ? { ...prev, emailVerified: true } : prev));
+      } else {
+        setVerificationStatus("sent");
+        setVerificationMessage("Not verified yet. Open the link from your email, then check again.");
+      }
+    } catch (err) {
+      console.error("Staff verification check error:", err);
+      setVerificationMessage("We couldn't check your verification status right now. Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
 
   const handleStaffProfileSave = async () => {
     if (!staffProfileForm || showGuest || !isStaffRole) return;
     const errors = validateStaffProfile(staffProfileForm);
+    if (requiresStaffEmailVerification) {
+      errors.email = "Verify your email before completing your first staff login.";
+    }
     setStaffProfileErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -338,9 +377,8 @@ function Staff({
         staffProfileForm.availabilityStart,
         staffProfileForm.availabilityEnd
       ),
-      experienceYears: Number(staffProfileForm.experienceYears),
+      previousPosition: String(staffProfileForm.previousPosition || "").trim(),
       experienceNotes: String(staffProfileForm.experienceNotes || "").trim(),
-      preferredWorkload: Number(staffProfileForm.preferredWorkload),
       rating: Number(profile?.rating || staffProfileForm.rating || 0) || 0,
       profileComplete: true
     };
@@ -913,6 +951,12 @@ function Staff({
           handleStaffProfileSave={handleStaffProfileSave}
           handleStaffProfileReset={handleStaffProfileReset}
           showProfilePrompt={showProfilePrompt}
+          requiresStaffEmailVerification={requiresStaffEmailVerification}
+          verificationStatus={verificationStatus}
+          verificationMessage={verificationMessage}
+          verificationBusy={verificationBusy}
+          handleResendVerification={handleResendVerification}
+          handleCheckVerification={handleCheckVerification}
           profileToast={profileToast}
           onDismissProfileToast={() => setProfileToast("")}
           renderDashboardSection={renderDashboardSection}

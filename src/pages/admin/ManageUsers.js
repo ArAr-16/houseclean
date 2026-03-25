@@ -70,23 +70,21 @@ const emptyForm = {
   dob: "",
   contact: "",
   email: "",
-  address: "",
+  street: "",
   barangay: "",
-  govId: "",
-  barangayClearance: "Pending",
-  experience: "",
+  landmark: "",
+  municipality: "Dagupan City",
+  province: "Pangasinan",
+  country: "Philippines",
+  previousPosition: "",
   skills: [],
-  preferredService: "",
-  availability: "",
-  trainingCompleted: false,
-  certification: "",
-  healthCert: "",
-  phoneModel: "",
   bankAccount: "",
-  emergency: "",
+  sssIdNumber: "",
+  tinIdNumber: "",
+  pagIbigMidNumber: "",
+  philhealthNumber: "",
   serviceAreas: [],
   role: "Housekeeper",
-  otherSkill: "",
   password: "",
   confirmPassword: "",
 };
@@ -132,10 +130,13 @@ const getAvatarUrl = (user, fallbackSeed) => {
 };
 
 const skillOptions = [
-  "Housecleaning",
+  "House Cleaning",
   "Deep Cleaning",
-  "Appliances Cleaning",
-  "Other",
+  "Kitchen Cleaning",
+  "Bathroom Cleaning",
+  "Bedroom Cleaning",
+  "Outdoor Cleaning",
+  "Appliance Cleaning"
 ];
 
 const serviceAreaOptions = [
@@ -230,15 +231,6 @@ function ManageUsers() {
       const exists = list.includes(skill);
       const next = exists ? list.filter((s) => s !== skill) : [...list, skill];
       return { ...prev, skills: next };
-    });
-  };
-
-  const handleOtherSkillChange = (value) => {
-    setForm((prev) => {
-      const trimmed = value;
-      const filtered = (prev.skills || []).filter((s) => s !== "Other");
-      const nextSkills = trimmed.trim() ? [...filtered, "Other"] : filtered;
-      return { ...prev, otherSkill: trimmed, skills: nextSkills };
     });
   };
 
@@ -387,10 +379,17 @@ function ManageUsers() {
     const fullName = form.fullName.trim();
     const firstName = form.firstName.trim();
     const lastName = form.lastName.trim();
+    const dob = form.dob.trim();
     const contact = form.contact.trim();
     const email = form.email.trim();
+    const street = form.street.trim();
     const barangay = form.barangay.trim();
-    const preferred = form.preferredService.trim();
+    const landmark = form.landmark.trim();
+    const bankAccount = form.bankAccount.trim();
+    const sssIdNumber = form.sssIdNumber.trim();
+    const tinIdNumber = form.tinIdNumber.trim();
+    const pagIbigMidNumber = form.pagIbigMidNumber.trim();
+    const philhealthNumber = form.philhealthNumber.trim();
     const password = form.password;
     const confirmPassword = form.confirmPassword;
     const phonePattern = /^09\d{9}$/;
@@ -408,6 +407,9 @@ function ManageUsers() {
     }
     if (fullName && fullName.length > 60) {
       errs.fullName = "Full name must be under 60 characters";
+    }
+    if (!dob) {
+      errs.dob = "Date of birth is required";
     }
     if (!contact) {
       errs.contact = "Contact number is required";
@@ -428,36 +430,45 @@ function ManageUsers() {
     } else if (barangay.length > 60) {
       errs.barangay = "Barangay must be under 60 characters";
     }
-    if (form.address && form.address.length > 120) {
-      errs.address = "Address must be under 120 characters";
+    if (!street) {
+      errs.street = "Street is required";
+    } else if (street.length > 120) {
+      errs.street = "Street must be under 120 characters";
     }
-    if (form.govId && form.govId.length > 30) {
-      errs.govId = "Government ID must be under 30 characters";
+    if (!landmark) {
+      errs.landmark = "Landmark is required";
+    } else if (landmark.length > 80) {
+      errs.landmark = "Landmark must be under 80 characters";
     }
-    if (form.experience && form.experience.length > 160) {
-      errs.experience = "Experience must be under 160 characters";
+    if (form.previousPosition && form.previousPosition.length > 120) {
+      errs.previousPosition = "Previous position must be under 120 characters";
     }
-    if (form.availability && form.availability.length > 80) {
-      errs.availability = "Availability must be under 80 characters";
-    }
-    if (form.certification && form.certification.length > 80) {
-      errs.certification = "Certification must be under 80 characters";
-    }
-    if (form.healthCert && form.healthCert.length > 80) {
-      errs.healthCert = "Health certificate must be under 80 characters";
-    }
-    if (form.bankAccount && form.bankAccount.length > 40) {
+    if (!bankAccount) {
+      errs.bankAccount = "Bank account number is required";
+    } else if (bankAccount.length > 40) {
       errs.bankAccount = "Bank account must be under 40 characters";
     }
-    if (form.emergency && form.emergency.length > 80) {
-      errs.emergency = "Emergency contact must be under 80 characters";
+    if (!sssIdNumber) {
+      errs.sssIdNumber = "SSS ID number is required";
+    } else if (sssIdNumber.length > 30) {
+      errs.sssIdNumber = "SSS ID number must be under 30 characters";
     }
-    if (form.skills.length === 0) errs.skills = "Select at least one skill";
-    if (form.skills.includes("Other") && !form.otherSkill.trim()) {
-      errs.skills = "Please specify other skill";
-    } else if (form.otherSkill && form.otherSkill.length > 60) {
-      errs.skills = "Other skill must be under 60 characters";
+    if (!tinIdNumber) {
+      errs.tinIdNumber = "TIN ID number is required";
+    } else if (tinIdNumber.length > 30) {
+      errs.tinIdNumber = "TIN ID number must be under 30 characters";
     }
+    if (!pagIbigMidNumber) {
+      errs.pagIbigMidNumber = "Pag-IBIG MID number is required";
+    } else if (pagIbigMidNumber.length > 30) {
+      errs.pagIbigMidNumber = "Pag-IBIG MID number must be under 30 characters";
+    }
+    if (!philhealthNumber) {
+      errs.philhealthNumber = "PhilHealth number is required";
+    } else if (philhealthNumber.length > 30) {
+      errs.philhealthNumber = "PhilHealth number must be under 30 characters";
+    }
+    if (form.skills.length === 0) errs.skills = "Select at least one service capability";
     if (form.serviceAreas.length === 0) errs.serviceAreas = "Select at least one service area";
     if (!password) {
       errs.password = "Password is required";
@@ -499,21 +510,30 @@ function ManageUsers() {
         console.warn("Verification email send skipped:", verificationErr?.code || verificationErr?.message);
       }
       const uid = cred.user.uid;
-      const finalSkills =
-        form.skills.includes("Other") && form.otherSkill.trim()
-          ? form.skills.filter((s) => s !== "Other").concat(form.otherSkill.trim())
-          : form.skills.filter((s) => s !== "Other" || form.otherSkill.trim());
       const { confirmPassword, password, ...cleanForm } = form;
       const newStaff = {
         ...cleanForm,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         fullName,
+        dob: form.dob.trim(),
         contact: form.contact.trim(),
         email: form.email.trim(),
+        street: form.street.trim(),
+        address: form.street.trim(),
         barangay: form.barangay.trim(),
-        preferredService: form.preferredService.trim(),
-        skills: finalSkills,
+        landmark: form.landmark.trim(),
+        municipality: "Dagupan City",
+        province: "Pangasinan",
+        country: "Philippines",
+        previousPosition: form.previousPosition.trim(),
+        skills: form.skills,
+        bankAccount: form.bankAccount.trim(),
+        sssIdNumber: form.sssIdNumber.trim(),
+        tinIdNumber: form.tinIdNumber.trim(),
+        pagIbigMidNumber: form.pagIbigMidNumber.trim(),
+        philhealthNumber: form.philhealthNumber.trim(),
+        serviceAreas: form.serviceAreas,
         id: uid,
         status: "active",
         joined: new Date().toISOString().slice(0, 10),
@@ -549,21 +569,21 @@ function ManageUsers() {
     const labels = {
       firstName: "First name",
       lastName: "Last name",
+      dob: "Date of birth",
       contact: "Contact number",
-      email: "Email address",
+      email: "Working email address",
       password: "Password",
       confirmPassword: "Confirm password",
-      address: "Residential address",
+      street: "Street",
       barangay: "Barangay",
-      govId: "Government ID",
-      experience: "Experience",
-      preferredService: "Preferred service",
-      availability: "Availability",
-      skills: "Skills",
-      certification: "Certification",
-      healthCert: "Health certificate",
+      landmark: "Landmark",
+      previousPosition: "Previous position",
+      skills: "Service capability",
       bankAccount: "Bank account",
-      emergency: "Emergency contact",
+      sssIdNumber: "SSS ID number",
+      tinIdNumber: "TIN ID number",
+      pagIbigMidNumber: "Pag-IBIG MID number",
+      philhealthNumber: "PhilHealth number",
       serviceAreas: "Service area coverage"
     };
     const hits = fields.filter((field) => Boolean(formErrors[field]));
@@ -669,13 +689,25 @@ function ManageUsers() {
   const selectedPhone = selected?.phone || selected?.contact || "-----";
   const selectedLocation = (() => {
     const parts = [
-      selected?.address,
+      selected?.street || selected?.address,
       selected?.barangay,
+      selected?.landmark,
       selected?.municipality,
       selected?.province,
     ].filter(Boolean);
     return parts.join(", ") || selected?.barangay || "-----";
   })();
+  const selectedJoined = selected?.joined || "-----";
+  const detailValue = (value, fallback = "-----") => {
+    const text = String(value ?? "").trim();
+    return text || fallback;
+  };
+  const renderDetailItem = (label, value, fallback = "-----") => (
+    <div className="profile-detail-item" key={label}>
+      <span>{label}</span>
+      <strong>{detailValue(value, fallback)}</strong>
+    </div>
+  );
 
   return (
     <div className="admin-page neo-admin">
@@ -691,10 +723,11 @@ function ManageUsers() {
                   title="Add staff"
                   onClick={() => {
                     setShowProfile(false);
-      setShowModal(true);
-      setForm((prev) => ({ ...emptyForm, ...prev, role: "Housekeeper" }));
-    }}
-  >
+                    setShowModal(true);
+                    setForm({ ...emptyForm, role: "Housekeeper" });
+                    setFormErrors({});
+                  }}
+                >
                   <i className="fas fa-user-plus" /> Add staff
                 </button>
               </div>
@@ -975,6 +1008,8 @@ function ManageUsers() {
         onClick={() => {
           setShowProfile(false);
           setShowModal(true);
+          setForm({ ...emptyForm, role: "Housekeeper" });
+          setFormErrors({});
         }}
       >
         <i className="fas fa-user-plus"></i>
@@ -1005,25 +1040,27 @@ function ManageUsers() {
                 {formatSectionErrors([
                   "firstName",
                   "lastName",
+                  "dob",
                   "contact",
                   "email",
                   "password",
                   "confirmPassword",
-                  "address",
+                  "street",
                   "barangay",
-                  "govId"
+                  "landmark"
                 ]) && (
                   <div className="form-error form-error--banner">
                     {formatSectionErrors([
                       "firstName",
                       "lastName",
+                      "dob",
                       "contact",
                       "email",
                       "password",
                       "confirmPassword",
-                      "address",
+                      "street",
                       "barangay",
-                      "govId"
+                      "landmark"
                     ])}
                   </div>
                 )}
@@ -1058,15 +1095,16 @@ function ManageUsers() {
                     {formErrors.lastName && <span className="form-error">{formErrors.lastName}</span>}
                   </label>
                   <label>
-                    Date of Birth
+                    Date of Birth*
                     <input
                       type="date"
                       value={form.dob}
                       onChange={(e) => setForm({ ...form, dob: e.target.value })}
                     />
+                    {formErrors.dob && <span className="form-error">{formErrors.dob}</span>}
                   </label>
                   <label>
-                    Contact Number*
+                    Phone Number*
                     <input
                       type="text"
                       maxLength={15}
@@ -1076,7 +1114,7 @@ function ManageUsers() {
                     {formErrors.contact && <span className="form-error">{formErrors.contact}</span>}
                   </label>
                   <label>
-                    Email Address*
+                    Working Email Address*
                     <input
                       type="email"
                       maxLength={80}
@@ -1128,17 +1166,17 @@ function ManageUsers() {
                     )}
                   </label>
                   <label className="full">
-                    Residential Address
+                    Street*
                     <input
                       type="text"
                       maxLength={120}
-                      value={form.address}
-                      onChange={(e) => setForm({ ...form, address: e.target.value })}
+                      value={form.street}
+                      onChange={(e) => setForm({ ...form, street: e.target.value })}
                     />
-                    {formErrors.address && <span className="form-error">{formErrors.address}</span>}
+                    {formErrors.street && <span className="form-error">{formErrors.street}</span>}
                   </label>
                   <label>
-                    Barangay/Area in Dagupan*
+                    Barangay*
                     <input
                       type="text"
                       maxLength={60}
@@ -1148,24 +1186,26 @@ function ManageUsers() {
                     {formErrors.barangay && <span className="form-error">{formErrors.barangay}</span>}
                   </label>
                   <label>
-                    Government ID Number
+                    Landmark*
                     <input
                       type="text"
-                      maxLength={30}
-                      value={form.govId}
-                      onChange={(e) => setForm({ ...form, govId: e.target.value })}
+                      maxLength={80}
+                      value={form.landmark}
+                      onChange={(e) => setForm({ ...form, landmark: e.target.value })}
                     />
-                    {formErrors.govId && <span className="form-error">{formErrors.govId}</span>}
+                    {formErrors.landmark && <span className="form-error">{formErrors.landmark}</span>}
                   </label>
                   <label>
-                    Local Barangay Clearance
-                    <select
-                      value={form.barangayClearance}
-                      onChange={(e) => setForm({ ...form, barangayClearance: e.target.value })}
-                    >
-                      <option value="Submitted">Submitted</option>
-                      <option value="Pending">Pending</option>
-                    </select>
+                    City
+                    <input type="text" value={form.municipality} readOnly />
+                  </label>
+                  <label>
+                    Province
+                    <input type="text" value={form.province} readOnly />
+                  </label>
+                  <label>
+                    Country
+                    <input type="text" value={form.country} readOnly />
                   </label>
                 </div>
               </section>
@@ -1173,120 +1213,59 @@ function ManageUsers() {
               <section>
                 <h4>Step 2: Professional Details & Compliance</h4>
                 {formatSectionErrors([
-                  "experience",
-                  "preferredService",
-                  "availability",
+                  "previousPosition",
                   "skills",
-                  "certification",
-                  "healthCert",
                   "bankAccount",
-                  "emergency",
+                  "sssIdNumber",
+                  "tinIdNumber",
+                  "pagIbigMidNumber",
+                  "philhealthNumber",
                   "serviceAreas"
                 ]) && (
                   <div className="form-error form-error--banner">
                     {formatSectionErrors([
-                      "experience",
-                      "preferredService",
-                      "availability",
+                      "previousPosition",
                       "skills",
-                      "certification",
-                      "healthCert",
                       "bankAccount",
-                      "emergency",
+                      "sssIdNumber",
+                      "tinIdNumber",
+                      "pagIbigMidNumber",
+                      "philhealthNumber",
                       "serviceAreas"
                     ])}
                   </div>
                 )}
                 <div className="form-grid">
                   <label className="full">
-                    Previous Experience
+                    Previous Experience (optional)
                     <input
                       type="text"
-                      maxLength={160}
-                      value={form.experience}
-                      onChange={(e) => setForm({ ...form, experience: e.target.value })}
+                      maxLength={120}
+                      value={form.previousPosition}
+                      onChange={(e) => setForm({ ...form, previousPosition: e.target.value })}
                     />
-                    {formErrors.experience && <span className="form-error">{formErrors.experience}</span>}
+                    {formErrors.previousPosition && <span className="form-error">{formErrors.previousPosition}</span>}
                   </label>
                   <div className="full">
                     <p className="label">
-                      Skills (tick all that apply)*
+                      Service Capability*
                     </p>
                     <div className="skill-list">
-                      {skillOptions
-                        .filter((s) => s !== "Other")
-                        .map((skill) => (
-                          <button
-                            type="button"
-                            key={skill}
-                            className={`skill-pill ${
-                              form.skills.includes(skill) ? "selected" : ""
-                            }`}
-                            onClick={() => toggleSkillButton(skill)}
-                          >
-                            {skill}
-                          </button>
-                        ))}
-                      <div className="skill-other">
+                      {skillOptions.map((skill) => (
                         <button
                           type="button"
-                          className={`skill-pill ${form.skills.includes("Other") ? "selected" : ""}`}
-                          onClick={() => toggleSkillButton("Other")}
+                          key={skill}
+                          className={`skill-pill ${form.skills.includes(skill) ? "selected" : ""}`}
+                          onClick={() => toggleSkillButton(skill)}
                         >
-                          Other
+                          {skill}
                         </button>
-                        <input
-                          type="text"
-                          placeholder="Specify other skill"
-                          maxLength={60}
-                          value={form.otherSkill}
-                          onChange={(e) => handleOtherSkillChange(e.target.value)}
-                        />
-                      </div>
+                      ))}
                     </div>
                     {formErrors.skills && <span className="form-error">{formErrors.skills}</span>}
                   </div>
-                  
-                  
                   <label>
-                    Training Completed
-                    <select
-                      value={form.trainingCompleted ? "Yes" : "No"}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          trainingCompleted: e.target.value === "Yes",
-                        })
-                      }
-                    >
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
-                  </label>
-                  <label>
-                    Certification/Assessment Result
-                    <input
-                      type="text"
-                      maxLength={80}
-                      value={form.certification}
-                      onChange={(e) => setForm({ ...form, certification: e.target.value })}
-                    />
-                    {formErrors.certification && (
-                      <span className="form-error">{formErrors.certification}</span>
-                    )}
-                  </label>
-                  <label>
-                    Health Certificate (if required)
-                    <input
-                      type="text"
-                      maxLength={80}
-                      value={form.healthCert}
-                      onChange={(e) => setForm({ ...form, healthCert: e.target.value })}
-                    />
-                    {formErrors.healthCert && <span className="form-error">{formErrors.healthCert}</span>}
-                  </label>
-                  <label>
-                    Bank Account Number
+                    Bank Account Number*
                     <input
                       type="text"
                       maxLength={40}
@@ -1296,14 +1275,44 @@ function ManageUsers() {
                     {formErrors.bankAccount && <span className="form-error">{formErrors.bankAccount}</span>}
                   </label>
                   <label>
-                    Emergency Contact
+                    SSS ID Number*
                     <input
                       type="text"
-                      maxLength={80}
-                      value={form.emergency}
-                      onChange={(e) => setForm({ ...form, emergency: e.target.value })}
+                      maxLength={30}
+                      value={form.sssIdNumber}
+                      onChange={(e) => setForm({ ...form, sssIdNumber: e.target.value })}
                     />
-                    {formErrors.emergency && <span className="form-error">{formErrors.emergency}</span>}
+                    {formErrors.sssIdNumber && <span className="form-error">{formErrors.sssIdNumber}</span>}
+                  </label>
+                  <label>
+                    TIN ID Number*
+                    <input
+                      type="text"
+                      maxLength={30}
+                      value={form.tinIdNumber}
+                      onChange={(e) => setForm({ ...form, tinIdNumber: e.target.value })}
+                    />
+                    {formErrors.tinIdNumber && <span className="form-error">{formErrors.tinIdNumber}</span>}
+                  </label>
+                  <label>
+                    Pag-IBIG MID Number*
+                    <input
+                      type="text"
+                      maxLength={30}
+                      value={form.pagIbigMidNumber}
+                      onChange={(e) => setForm({ ...form, pagIbigMidNumber: e.target.value })}
+                    />
+                    {formErrors.pagIbigMidNumber && <span className="form-error">{formErrors.pagIbigMidNumber}</span>}
+                  </label>
+                  <label>
+                    PhilHealth Number*
+                    <input
+                      type="text"
+                      maxLength={30}
+                      value={form.philhealthNumber}
+                      onChange={(e) => setForm({ ...form, philhealthNumber: e.target.value })}
+                    />
+                    {formErrors.philhealthNumber && <span className="form-error">{formErrors.philhealthNumber}</span>}
                   </label>
                   <label className="full">
                     Service Area Coverage (select one or more)*
@@ -1386,7 +1395,7 @@ function ManageUsers() {
                           {selectedProfileType === "admin"
                             ? "Administrator"
                             : selectedProfileType === "housekeeper"
-                              ? selected.preferredService || "Housekeeper"
+                              ? selected.previousPosition || "Housekeeper"
                               : selectedLocation}
                         </p>
                         <div className="chip-row">
@@ -1413,8 +1422,8 @@ function ManageUsers() {
                         <strong>{selectedPhone}</strong>
                       </div>
                       <div>
-                        <small>{selectedProfileType === "admin" ? "UID" : "Location"}</small>
-                        <strong>{selectedProfileType === "admin" ? selected.id : selectedLocation}</strong>
+                        <small>{selectedProfileType === "admin" ? "UID" : "Joined"}</small>
+                        <strong>{selectedProfileType === "admin" ? selected.id : selectedJoined}</strong>
                       </div>
                     </div>
                   </div>
@@ -1424,15 +1433,29 @@ function ManageUsers() {
                   {selectedProfileType === "housekeeper" && (
                     <>
                       <div className="profile-card">
-                        <h4>Work & Skills</h4>
-                        <p><strong>Experience:</strong> {selected.experience || "-----"}</p>
-                        <p><strong>Availability:</strong> {selected.availability || "-----"}</p>
-                        <p><strong>Preferred Service:</strong> {selected.preferredService || "-----"}</p>
+                        <h4>Overview</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("First name", selected.firstName)}
+                          {renderDetailItem("Last name", selected.lastName)}
+                          {renderDetailItem("Date of birth", selected.dob, "—")}
+                          {renderDetailItem("Working email", selected.email)}
+                          {renderDetailItem("Joined", selectedJoined)}
+                        </div>
+                      </div>
+                      <div className="profile-card">
+                        <h4>Professional Details</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("Previous position", selected.previousPosition, "Optional / not provided")}
+                          <p className="profile-card__label">Service capability</p>
+                        </div>
                         <div className="tag-row">
                           {(selected.skills || []).map((s) => (
                             <span key={s} className="tag">{s}</span>
                           ))}
                         </div>
+                      </div>
+                      <div className="profile-card">
+                        <h4>Service Area Coverage</h4>
                         <div className="tag-row">
                           {(selected.serviceAreas || []).map((s) => (
                             <span key={s} className="tag soft">{s}</span>
@@ -1440,9 +1463,14 @@ function ManageUsers() {
                         </div>
                       </div>
                       <div className="profile-card">
-                        <h4>Logistics</h4> 
-                        <p><strong>Bank Account:</strong> {selected.bankAccount || "-----"}</p>
-                        <p><strong>Emergency Contact:</strong> {selected.emergency || "-----"}</p>
+                        <h4>Compliance & Banking</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("Bank account number", selected.bankAccount)}
+                          {renderDetailItem("SSS ID number", selected.sssIdNumber)}
+                          {renderDetailItem("TIN ID number", selected.tinIdNumber)}
+                          {renderDetailItem("Pag-IBIG MID number", selected.pagIbigMidNumber)}
+                          {renderDetailItem("PhilHealth number", selected.philhealthNumber)}
+                        </div>
                       </div>
                     </>
                   )}
@@ -1450,18 +1478,24 @@ function ManageUsers() {
                   {selectedProfileType === "householder" && (
                     <>
                       <div className="profile-card">
-                        <h4>Household Details</h4>
-                        <p><strong>First name:</strong> {selected.firstName || "-----"}</p>
-                        <p><strong>Last name:</strong> {selected.lastName || "-----"}</p>
-                        <p><strong>Address:</strong> {selected.address || "-----"}</p>
-                        <p><strong>Landmark:</strong> {selected.landmark || "-----"}</p>
+                        <h4>Overview</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("First name", selected.firstName)}
+                          {renderDetailItem("Last name", selected.lastName)}
+                          {renderDetailItem("Email", selected.email)}
+                          {renderDetailItem("Phone", selectedPhone)}
+                          {renderDetailItem("Joined", selectedJoined)}
+                        </div>
                       </div>
                       <div className="profile-card">
-                        <h4>Account</h4>
-                        <p><strong>Joined:</strong> {selected.joined || "-----"}</p>
-                        <p><strong>Status:</strong> {selected.status || "pending"}</p>
-                        <p><strong>UID:</strong> {selected.id || "-----"}</p>
-                        <p><strong>Barangay:</strong> {selected.barangay || "-----"}</p>
+                        <h4>Location</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("Street", selected.street || selected.address)}
+                          {renderDetailItem("Barangay", selected.barangay)}
+                          {renderDetailItem("Landmark", selected.landmark, "—")}
+                          {renderDetailItem("Municipality", selected.municipality, "—")}
+                          {renderDetailItem("Province", selected.province, "—")}
+                        </div>
                       </div>
                     </>
                   )}
@@ -1469,17 +1503,22 @@ function ManageUsers() {
                   {selectedProfileType === "admin" && (
                     <>
                       <div className="profile-card">
-                        <h4>Admin Access</h4>
-                        <p><strong>Role:</strong> Admin</p>
-                        <p><strong>Status:</strong> {selected.status || "active"}</p>
-                        <p><strong>UID:</strong> {selected.id || "-----"}</p>
-                        <p><strong>Notes:</strong> Admin account managed by the system.</p>
+                        <h4>Overview</h4>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("Role", "Admin")}
+                          {renderDetailItem("Status", selected.status || "active")}
+                          {renderDetailItem("UID", selected.id)}
+                          {renderDetailItem("Email", selected.email)}
+                          {renderDetailItem("Phone", selectedPhone)}
+                        </div>
                       </div>
                       <div className="profile-card">
-                        <h4>Contact</h4>
-                        <p><strong>Email:</strong> {selected.email || "-----"}</p>
-                        <p><strong>Phone:</strong> {selectedPhone}</p>
-                        <p><strong>Location:</strong> {selectedLocation}</p>
+                        <h4>Notes</h4>
+                        <p>Administrator accounts can manage users, roles, records, and access controls.</p>
+                        <div className="profile-detail-list">
+                          {renderDetailItem("Location", selectedLocation)}
+                          {renderDetailItem("Joined", selectedJoined)}
+                        </div>
                       </div>
                     </>
                   )}
@@ -1498,16 +1537,21 @@ function ManageUsers() {
                 {selectedProfileType === "housekeeper" && (
                   <>
                     <div className="profile-card dense">
-                      <h4>Bio</h4>
-                      <p>{selected.experience || "No bio provided."}</p>
+                      <h4>Address</h4>
+                      <div className="profile-detail-list compact">
+                        {renderDetailItem("Street", selected.street || selected.address, "—")}
+                        {renderDetailItem("Barangay", selected.barangay, "—")}
+                        {renderDetailItem("Landmark", selected.landmark, "—")}
+                        {renderDetailItem("Full location", selectedLocation, "—")}
+                      </div>
                     </div>
                     <div className="profile-card dense">
-                      <h4>Compliance</h4>
-                      <p><strong>Gov ID:</strong> {selected.govId || "—"}</p>
-                      <p><strong>Brgy Clearance:</strong> {selected.barangayClearance}</p>
-                      <p><strong>Training:</strong> {selected.trainingCompleted ? "Completed" : "Pending"}</p>
-                      <p><strong>Certification:</strong> {selected.certification || "—"}</p>
-                      <p><strong>Health Cert:</strong> {selected.healthCert || "—"}</p>
+                      <h4>Account Snapshot</h4>
+                      <div className="profile-detail-list compact">
+                        {renderDetailItem("Status", selected.status || "pending")}
+                        {renderDetailItem("Role", "Housekeeper")}
+                        {renderDetailItem("UID", selected.id, "—")}
+                      </div>
                     </div>
                   </>
                 )}
@@ -1516,14 +1560,19 @@ function ManageUsers() {
                   <>
                     <div className="profile-card dense">
                       <h4>Contact</h4>
-                      <p><strong>Email:</strong> {selected.email || "—"}</p>
-                      <p><strong>Phone:</strong> {selectedPhone}</p>
+                      <div className="profile-detail-list compact">
+                        {renderDetailItem("Email", selected.email, "—")}
+                        {renderDetailItem("Phone", selectedPhone)}
+                        {renderDetailItem("UID", selected.id, "—")}
+                      </div>
                     </div>
                     <div className="profile-card dense">
-                      <h4>Location</h4>
-                      <p><strong>Province:</strong> {selected.province || "—"}</p>
-                      <p><strong>Municipality:</strong> {selected.municipality || "—"}</p>
-                      <p><strong>Barangay:</strong> {selected.barangay || "—"}</p>
+                      <h4>Account Snapshot</h4>
+                      <div className="profile-detail-list compact">
+                        {renderDetailItem("Status", selected.status || "pending")}
+                        {renderDetailItem("Role", "Householder")}
+                        {renderDetailItem("Location", selectedLocation)}
+                      </div>
                     </div>
                   </>
                 )}
@@ -1536,8 +1585,10 @@ function ManageUsers() {
                     </div>
                     <div className="profile-card dense">
                       <h4>Account</h4>
-                      <p><strong>Status:</strong> {selected.status || "active"}</p>
-                      <p><strong>Joined:</strong> {selected.joined || "—"}</p>
+                      <div className="profile-detail-list compact">
+                        {renderDetailItem("Status", selected.status || "active")}
+                        {renderDetailItem("Joined", selectedJoined)}
+                      </div>
                     </div>
                   </>
                 )}

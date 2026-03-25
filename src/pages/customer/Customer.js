@@ -22,6 +22,7 @@ import CustomerHeader from "./components/CustomerHeader";
 import CustomerMain from "./components/CustomerMain";
 import BookingWizardModal from "./BookingWizardModal";
 import { getCustomerSidebarItems } from "./customerNav";
+import hcCorpStaticQr from "../../assets/payments/hc-corp-static-qr.png";
 
 function Customer() {
   const sidebarOpen = false;
@@ -43,6 +44,9 @@ function Customer() {
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [paymentTxn, setPaymentTxn] = useState("");
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [showTrackModal, setShowTrackModal] = useState(false);
+  const [activeRequest, setActiveRequest] = useState(null);
+  const [showQrPreviewModal, setShowQrPreviewModal] = useState(false);
   const [queuedPaymentTarget, setQueuedPaymentTarget] = useState(null);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundTarget, setRefundTarget] = useState(null);
@@ -424,7 +428,7 @@ function Customer() {
           const availabilityLabel = String(user?.availability || "").trim()
             ? String(user?.availability).trim()
             : availabilityDays.length && availabilityStart && availabilityEnd
-              ? `${availabilityDays.join(", ")} Â· ${availabilityStart}-${availabilityEnd}`
+              ? `${availabilityDays.join(", ")} · ${availabilityStart}-${availabilityEnd}`
               : "";
           return {
             id: String(user?.id || ""),
@@ -441,7 +445,7 @@ function Customer() {
             availabilityDays,
             availabilityStart,
             availabilityEnd,
-            experienceYears: Number(user?.experienceYears || user?.experience || 0) || 0,
+            previousPosition: String(user?.previousPosition || "").trim(),
             experienceNotes: String(user?.experienceNotes || user?.experience || "").trim(),
             certification: String(user?.certification || "").trim(),
             barangayClearance: String(user?.barangayClearance || "").trim(),
@@ -533,12 +537,11 @@ function Customer() {
         }
       : null;
   })();
-  const openLatestRequestDetails = () => {
-    const requestId = String(latestRequest?.requestId || latestRequest?.id || "").trim();
+  const openLatestRequestDetails = (request = latestRequest) => {
+    const requestId = String(request?.requestId || request?.id || "").trim();
     if (!requestId) return;
-    navigate(`${basePath}/requests`, {
-      state: { openTrackFor: requestId, openTrackModal: true }
-    });
+    setActiveRequest(request);
+    setShowTrackModal(true);
   };
 
   const arrivalHandledRef = React.useRef(new Set());
@@ -585,7 +588,7 @@ function Customer() {
       year: "numeric"
     });
     const time = parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    return `${date} •  ${time}`;
+    return `${date} • ${time}`;
   };
 
   const formatPaymentMethodLabel = (value) => {
@@ -603,6 +606,78 @@ function Customer() {
     if (value === "COMPLETED") return "COMPLETED";
     return "PENDING";
   };
+
+  const StatusBadge = ({ status }) => {
+    const current = normalizeStatus(status);
+    return <div className={`status-pill status-${current.toLowerCase()}`}>{current}</div>;
+  };
+
+  const DetailedStatusTracker = ({ request }) => {
+    const status = normalizeStatus(request?.status);
+    const paymentStatus = String(request?.paymentStatus || "").toUpperCase();
+    const paymentMethod = String(request?.paymentMethod || request?.paidVia || "").toUpperCase();
+    const hasPaymentMethod = Boolean(paymentMethod);
+    const paymentReceived = paymentStatus === "PAID" || Boolean(request?.paidAt);
+    const steps =
+      status === "CANCELLED"
+        ? [
+            { key: "requested", label: "Requested", done: true },
+            { key: "cancelled", label: "Cancelled", done: true }
+          ]
+        : (() => {
+            const baseSteps = [
+              { key: "requested", label: "Requested", ready: true },
+              {
+                key: "payment_set",
+                label: paymentMethod === "CASH_ON_HAND" ? "Cash on hand reserved" : "Payment method set",
+                ready: hasPaymentMethod
+              },
+              { key: "accepted", label: "Staff accepted", ready: status !== "PENDING" },
+              {
+                key: "payment_paid",
+                label: paymentMethod === "CASH_ON_HAND" ? "Payment received" : "Payment confirmed",
+                ready: paymentReceived
+              },
+              { key: "completed", label: "Service completed", ready: status === "COMPLETED" }
+            ];
+            let reached = true;
+            return baseSteps.map((step) => {
+              const done = reached && step.ready;
+              if (!done) reached = false;
+              return { ...step, done };
+            });
+          })();
+    const completedSteps = steps.filter((step) => step.done).length;
+    const progress =
+      steps.length <= 1 ? 100 : Math.max(0, ((completedSteps - 1) / (steps.length - 1)) * 100);
+
+    return (
+      <div
+        className={`status-tracker status-tracker--line status-${status.toLowerCase()}`}
+        aria-label={`Request tracker: ${status}`}
+        style={{ "--progress": progress }}
+      >
+        <div className="status-line" aria-hidden="true">
+          <span className="status-line__bg"></span>
+          <span className="status-line__fill"></span>
+        </div>
+        <div className="status-line__percent" aria-hidden="true">
+          {`${Math.round(progress)}%`}
+        </div>
+        <div className="status-line__steps">
+          {steps.map((step) => (
+            <div key={step.key} className={`status-step ${step.done ? "on" : ""}`}>
+              <span className="status-dot" aria-hidden="true"></span>
+              <span className="status-label">{step.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const formatSchedule = (request) =>
+    formatDateTimeLabel(request?.startDate || request?.preferredTime, request?.date, request?.time);
 
   const formatBookedAt = (req) => {
     const raw =
@@ -724,6 +799,15 @@ function Customer() {
     setPaymentTarget(request);
     setPaymentTxn("");
     setPaymentModalOpen(true);
+  };
+
+  const downloadQrCodeImage = () => {
+    const link = document.createElement("a");
+    link.href = hcCorpStaticQr;
+    link.download = "hc-corp-static-qr.png";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   const canRequestRefund = (req) => {
@@ -882,6 +966,7 @@ function Customer() {
         });
       }
       setPaymentModalOpen(false);
+      setShowQrPreviewModal(false);
     } finally {
       setPaymentSaving(false);
     }
@@ -896,7 +981,6 @@ function Customer() {
   const promoCredits = Number(profile?.promoCredits || profile?.referralCredits || 0) || 0;
 
   const history = (myRequests || []).map((r) => {
-    const hours = r.durationHours ?? r.hours ?? null;
     const statusText = String(r.status || "PENDING").toUpperCase();
     const startDate = r.startDate || r.preferredTime || "";
     const serviceType = r.serviceType || r.service || "Service";
@@ -918,7 +1002,6 @@ function Customer() {
       id: r.requestId || r.id,
       job: location ? `${serviceType} - ${location}` : serviceType,
       date: startDate,
-      hours: hours == null ? "--" : String(hours),
       payout: payoutLabel,
       status: statusText,
       photos,
@@ -1035,7 +1118,100 @@ function Customer() {
           </div>
         </div>
       )}
-            {paymentModalOpen && paymentTarget && (
+      {showTrackModal && activeRequest && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowTrackModal(false)} />
+          <div className="customer-modal__panel track-modal" role="dialog" aria-modal="true" aria-label="Request details">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-receipt"></i>
+            </div>
+            <h4>Request details</h4>
+            <StatusBadge status={activeRequest.status} />
+            <DetailedStatusTracker request={activeRequest} />
+            <div className="track-modal__grid">
+              <div>
+                <small>Request ID</small>
+                <strong>{activeRequest.requestId || activeRequest.id || "--"}</strong>
+              </div>
+              <div>
+                <small>Service</small>
+                <strong>
+                  {Array.isArray(activeRequest.serviceTypes) && activeRequest.serviceTypes.length > 0
+                    ? activeRequest.serviceTypes.join(", ")
+                    : activeRequest.serviceType || activeRequest.service || "--"}
+                </strong>
+              </div>
+              <div>
+                <small>Payment</small>
+                <strong>{formatPaymentMethodLabel(activeRequest.paymentMethod || activeRequest.paidVia)}</strong>
+              </div>
+              <div>
+                <small>Schedule</small>
+                <strong>{formatSchedule(activeRequest)}</strong>
+              </div>
+              <div>
+                <small>Booked at</small>
+                <strong>{formatBookedAt(activeRequest)}</strong>
+              </div>
+              <div>
+                <small>Address</small>
+                <strong>{activeRequest.location || activeRequest.street || activeRequest.address || addressLine || "--"}</strong>
+              </div>
+              <div>
+                <small>Staff</small>
+                <strong>{activeRequest.housekeeperName || "Pending assignment"}</strong>
+              </div>
+              <div>
+                <small>Status</small>
+                <strong>{normalizeStatus(activeRequest.status)}</strong>
+              </div>
+              <div>
+                <small>Total</small>
+                <strong>{moneyLabel(activeRequest.totalPrice)}</strong>
+              </div>
+            </div>
+            {activeRequest.notes && (
+              <div className="track-modal__notes">
+                <small>Notes</small>
+                <p>{activeRequest.notes}</p>
+              </div>
+            )}
+            {activeRequest?.staffArrived && (
+              <div className="track-modal__notes">
+                <small>Arrival</small>
+                <p>
+                  {activeRequest.customerArrivalConfirmed
+                    ? "Staff arrival confirmed."
+                    : "Staff has marked arrival. Please confirm."}
+                </p>
+              </div>
+            )}
+            <div className="customer-modal__actions">
+              {canRequestRefund(activeRequest) && (
+                <button className="btn pill ghost" type="button" onClick={() => openRefundModal(activeRequest)}>
+                  Request refund
+                </button>
+              )}
+              {activeRequest?.staffArrived && !activeRequest?.customerArrivalConfirmed && (
+                <button
+                  className="btn pill ghost"
+                  type="button"
+                  onClick={() => {
+                    setShowTrackModal(false);
+                    openArrivalModal(activeRequest);
+                  }}
+                >
+                  Confirm staff arrival
+                </button>
+              )}
+              <button className="btn pill primary" type="button" onClick={() => setShowTrackModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {paymentModalOpen && paymentTarget && (
         <div className="customer-modal">
           <div
             className="customer-modal__backdrop"
@@ -1098,9 +1274,6 @@ function Customer() {
                 <strong>{paymentTarget.housekeeperName || "Unassigned"}</strong>
               </div>
             </div>
-            <div className="track-modal__actions">
-              
-            </div>
 
             {String(paymentTarget.status || "").toUpperCase() === "PENDING_PAYMENT" &&
               String(paymentTarget.paymentMethod || "").toUpperCase() === "STATIC_QR" && (
@@ -1121,6 +1294,13 @@ function Customer() {
                       onClick={handleSubmitQrPayment}
                     >
                       {paymentSaving ? "Saving..." : "Submit QR Payment"}
+                    </button>
+                                        <button
+                      className="btn pill ghost text-btn"
+                      type="button"
+                      onClick={() => setShowQrPreviewModal(true)}
+                    >
+                      Scan this QR code
                     </button>
                   </div>
                 </div>
@@ -1152,6 +1332,29 @@ function Customer() {
                 type="button"
                 onClick={() => setPaymentModalOpen(false)}
               >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showQrPreviewModal && (
+        <div className="customer-modal">
+          <div className="customer-modal__backdrop" onClick={() => setShowQrPreviewModal(false)} />
+          <div className="customer-modal__panel qr-preview-modal" role="dialog" aria-modal="true" aria-label="Static QR code preview">
+            <div className="customer-modal__icon alt">
+              <i className="fas fa-qrcode"></i>
+            </div>
+            <h4>Scan this QR code</h4>
+            <p className="muted small">Use this official HC Corp QR code for static QR payments.</p>
+            <div className="qr-preview-modal__card">
+              <img src={hcCorpStaticQr} alt="HC Corp static QR code" className="qr-preview-modal__image" />
+            </div>
+            <div className="customer-modal__actions">
+              <button className="btn pill ghost text-btn" type="button" onClick={downloadQrCodeImage}>
+                Download this QR code
+              </button>
+              <button className="btn pill ghost" type="button" onClick={() => setShowQrPreviewModal(false)}>
                 Close
               </button>
             </div>
@@ -1269,8 +1472,3 @@ function Customer() {
 }
 
 export default Customer;
-
-
-
-
-

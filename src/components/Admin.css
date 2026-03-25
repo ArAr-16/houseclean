@@ -284,6 +284,130 @@ html.dark-mode .notification-item.fade-in {
   gap: 16px;
 }
 
+.admin-monitor-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.15fr) minmax(320px, 1fr);
+  gap: 16px;
+}
+
+.admin-activity-list,
+.admin-transaction-list,
+.admin-refund-review {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-activity-row,
+.admin-transaction-row,
+.admin-refund-row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #e5edf7;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.admin-activity-row {
+  grid-template-columns: auto 1fr auto;
+}
+
+.admin-transaction-row,
+.admin-refund-row {
+  grid-template-columns: 1fr auto;
+}
+
+.admin-activity-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.admin-activity-icon.user {
+  background: #ecfccb;
+  color: #3f6212;
+}
+
+.admin-activity-copy,
+.admin-transaction-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-activity-copy strong,
+.admin-transaction-copy strong,
+.admin-refund-row strong {
+  color: #0f2e4d;
+}
+
+.admin-activity-copy p,
+.admin-transaction-copy p,
+.admin-refund-row p {
+  margin: 0;
+  color: #5b6b80;
+  font-size: 13px;
+}
+
+.admin-activity-time {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.admin-finance-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.finance-kpi {
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eef6ff 0%, #f8fbff 100%);
+  border: 1px solid #dbe7f5;
+  display: grid;
+  gap: 4px;
+}
+
+.finance-kpi span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.finance-kpi strong {
+  font-size: 18px;
+  color: #0f2e4d;
+}
+
+.admin-transaction-meta {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.admin-refund-review {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed #d7e3f4;
+}
+
+.admin-refund-review h5 {
+  margin: 0 0 8px;
+  color: #0f2e4d;
+}
+
+.admin-refund-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .admin-card {
   background: #ffffff;
   border: 1px solid #e5edf7;
@@ -638,7 +762,8 @@ html.dark-mode .stats-menu__dropdown button:hover {
 
 @media (max-width: 1200px) {
   .admin-top-grid,
-  .admin-bottom-grid {
+  .admin-bottom-grid,
+  .admin-monitor-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -649,6 +774,18 @@ html.dark-mode .stats-menu__dropdown button:hover {
   }
   .admin-card--manage .admin-illustration {
     height: 140px;
+  }
+  .admin-finance-summary {
+    grid-template-columns: 1fr;
+  }
+  .admin-activity-row,
+  .admin-transaction-row,
+  .admin-refund-row {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .admin-transaction-meta {
+    justify-items: start;
   }
 }
 
@@ -3888,6 +4025,51 @@ html.dark-mode .form-grid select {
 
 .profile-card p strong {
   color: #0f5f7a;
+}
+
+.profile-card__label {
+  margin: 10px 0 8px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.profile-detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-detail-list.compact {
+  gap: 8px;
+}
+
+.profile-detail-item {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.profile-detail-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.profile-detail-item span {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.profile-detail-item strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .profile-side {

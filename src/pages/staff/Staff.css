@@ -1731,6 +1731,12 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   padding: 10px;
 }
 
+.settings-card input[readonly] {
+  background: #f8fafc;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
 .settings-card textarea {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -1870,6 +1876,8 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .theme-card {
@@ -1884,6 +1892,64 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.staff-password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.staff-password-field input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.staff-password-toggle {
+  position: absolute;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d7e3f4;
+  border-radius: 10px;
+  background: #eef4ff;
+  color: #1b3b80;
+  cursor: pointer;
+}
+
+.success-note {
+  color: #0f8a62;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.staff-verification-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(19, 130, 159, 0.08), rgba(241, 184, 86, 0.12));
+  border: 1px solid rgba(19, 130, 159, 0.18);
+}
+
+.staff-verification-card__copy {
+  display: grid;
+  gap: 6px;
+}
+
+.staff-verification-card__copy strong {
+  color: #0f2a40;
+}
+
+.staff-verification-card__copy span {
+  color: #41526b;
+  font-size: 0.95rem;
+}
+
+.staff-verification-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .staff-blocking-modal {
@@ -2485,6 +2551,31 @@ html.dark-mode .staff-shell .btn.ghost {
 
 html.dark-mode .staff-shell .btn.primary {
   background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+}
+
+html.dark-mode .settings-card input[readonly] {
+  background: #111827;
+  color: #94a3b8;
+  border-color: #1f2937;
+}
+
+html.dark-mode .staff-password-toggle {
+  background: #1f2a44;
+  border-color: #2f3a59;
+  color: #e6edf7;
+}
+
+html.dark-mode .staff-verification-card {
+  background: linear-gradient(135deg, rgba(19, 130, 159, 0.16), rgba(241, 184, 86, 0.12));
+  border-color: rgba(131, 233, 200, 0.2);
+}
+
+html.dark-mode .staff-verification-card__copy strong {
+  color: #e5e7f0;
+}
+
+html.dark-mode .staff-verification-card__copy span {
+  color: #cbd5e1;
 }
 
 html.dark-mode .top-actions .icon-btn {

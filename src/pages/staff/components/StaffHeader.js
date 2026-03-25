@@ -82,7 +82,6 @@ function StaffHeader({
                   <div>
                     <h4>{showGuest ? "Guest" : displayName}</h4>
                     <p className="role">{showGuest ? "Preview mode" : roleLabel}</p>
-                    {!showGuest && <p className="muted small">{profile?.preferredService || profile?.barangay || profile?.email}</p>}
                   </div>
                 </div>
               </div>
