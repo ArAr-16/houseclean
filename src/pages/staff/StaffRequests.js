@@ -170,7 +170,7 @@ function StaffRequestsContent({ ctx }) {
                               <div>
                                 <strong>{serviceLabel}</strong>
                                 <p className="muted small">
-                                  {customerName} - {item.location || "Location"}
+                                  {customerName}
                                 </p>
                                 {timeLabel && <p className="tiny muted">{timeLabel}</p>}
                               </div>

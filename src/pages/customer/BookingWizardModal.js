@@ -1032,6 +1032,19 @@ function BookingWizardModal({
       const paymentMethod = String(booking.paymentMethod || "").trim();
       const isCash = paymentMethod.toUpperCase() === "CASH_ON_HAND";
       const initialStatus = paymentMethod ? (isCash ? "RESERVED" : "PENDING_PAYMENT") : "PENDING";
+      const requestStreet = String(profile?.street || profile?.address || "").trim();
+      const requestBarangay = String(profile?.barangay || "").trim();
+      const requestLandmark = String(profile?.landmark || "").trim();
+      const requestLocation = [
+        requestStreet,
+        requestBarangay ? `Barangay ${requestBarangay}` : "",
+        requestLandmark,
+        "Dagupan City",
+        "Pangasinan",
+        "Philippines"
+      ]
+        .filter(Boolean)
+        .join(", ");
 
       const payload = {
         requestId,
@@ -1059,7 +1072,11 @@ function BookingWizardModal({
           min: priceRange.min,
           max: priceRange.max
         },
-        location: String(addressLine || profile?.location || "").trim(),
+        street: requestStreet,
+        address: requestStreet,
+        barangay: requestBarangay,
+        landmark: requestLandmark,
+        location: requestLocation || String(addressLine || profile?.location || "").trim(),
         notes: String(booking.notes || "").trim(),
         assignmentMode: autoAssigned ? "auto" : "customer",
         autoAssigned,

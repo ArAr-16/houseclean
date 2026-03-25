@@ -103,6 +103,12 @@ function Login() {
       } else if (role === "housekeeper" || role === "staff") {
         navigate("/staff");
       } else if (role === "householder" || role === "customer" || role === "user") {
+        if (!user.emailVerified) {
+          await signOut(auth);
+          setIsLoading(false);
+          setError("Please verify your email before signing in as a householder.");
+          return;
+        }
         navigate("/customer");
       } else {
         navigate("/");

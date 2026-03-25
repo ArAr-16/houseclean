@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth, db, rtdb } from "../firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { ref, set as rtdbSet } from "firebase/database";
 import "./Login.css";
@@ -18,7 +18,7 @@ function Register() {
     province: '',
     municipality: '',
     barangay: '',
-    address: '',
+    street: '',
     landmark: '',
     email: '',
     phone: '',
@@ -31,6 +31,9 @@ function Register() {
   const [successMessage, setSuccessMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState("idle");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const navigate = useNavigate();
   const blockSpaceKey = (e) => {
     if (e.key === " ") e.preventDefault();
@@ -154,6 +157,18 @@ function Register() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, emailLower, formData.password);
       user = userCredential.user;
+      try {
+        await sendEmailVerification(user, {
+          url: `${window.location.origin}/login`,
+          handleCodeInApp: false
+        });
+        setVerificationStatus("sent");
+        setVerificationMessage("Verification link sent. Please check your email inbox.");
+      } catch (verificationErr) {
+        console.warn("Verification email send skipped:", verificationErr?.code || verificationErr?.message);
+        setVerificationStatus("idle");
+        setVerificationMessage("Account created, but we could not send the verification email right now.");
+      }
       // Ensure the auth token is available before performing any Firestore/RTDB writes (rules often require auth).
       await user.getIdToken();
     } catch (authErr) {
@@ -185,9 +200,9 @@ function Register() {
       province: DEFAULT_COUNTRY,
       municipality: DEFAULT_CITY,
       barangay: formData.barangay,
-      address: formData.address,
+      street: formData.street,
       landmark: formData.landmark,
-      location: [formData.address, formData.barangay, formData.landmark, DEFAULT_CITY, DEFAULT_COUNTRY]
+      location: [formData.street, formData.barangay, formData.landmark, DEFAULT_CITY, DEFAULT_COUNTRY]
         .filter(Boolean)
         .join(", "),
       email: emailLower,
@@ -209,14 +224,75 @@ function Register() {
     const failedWrites = writeResults.filter((r) => r.status === "rejected");
     if (failedWrites.length) {
       console.warn("Profile save partially failed:", failedWrites.map((r) => r.reason?.code || r.reason?.message));
-      setSuccessMessage("Account created. Redirecting to sign in... (Some profile sync may be pending)");
+      setSuccessMessage(
+        "Account created. Please verify your email before signing in."
+      );
     } else {
-      setSuccessMessage("Account created successfully. Redirecting to sign in...");
+      setSuccessMessage("Account created successfully. Please verify your email before signing in.");
     }
 
     setSuccess(true);
-    setTimeout(() => navigate("/login"), 1200);
     setIsSubmitting(false);
+  };
+
+  const handleResendVerification = async () => {
+    if (verificationBusy) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setVerificationStatus("idle");
+      setVerificationMessage("Please create the account first before sending a verification link.");
+      return;
+    }
+    try {
+      setVerificationBusy(true);
+      await sendEmailVerification(currentUser, {
+        url: `${window.location.origin}/login`,
+        handleCodeInApp: false
+      });
+      setVerificationStatus("sent");
+      setVerificationMessage("Verification link sent. Please check your email inbox.");
+    } catch (err) {
+      console.error("Verification resend error:", err);
+      setVerificationStatus("idle");
+      setVerificationMessage("We couldn't resend the verification link right now. Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    if (verificationBusy) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setVerificationStatus("idle");
+      setVerificationMessage("Please sign in again to check your verification status.");
+      return;
+    }
+    try {
+      setVerificationBusy(true);
+      await currentUser.reload();
+      if (auth.currentUser?.emailVerified) {
+        setVerificationStatus("verified");
+        setVerificationMessage("Verified email");
+      } else {
+        setVerificationStatus("sent");
+        setVerificationMessage("Not verified yet. Open the link from your email, then check again.");
+      }
+    } catch (err) {
+      console.error("Verification check error:", err);
+      setVerificationMessage("We couldn't check your verification status right now. Please try again.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
+
+  const handleGoToSignIn = async () => {
+    try {
+      await signOut(auth);
+    } catch (_) {
+      // Ignore sign-out errors during navigation.
+    }
+    navigate("/login");
   };
 
   const goToNextStep = () => {
@@ -236,9 +312,9 @@ function Register() {
       setErrorFields(nextErrors);
       return;
     }
-    if (!formData.address || !formData.address.trim()) {
+    if (!formData.street || !formData.street.trim()) {
       setError('Please enter your house number and street');
-      nextErrors.address = true;
+      nextErrors.street = true;
       setErrorFields(nextErrors);
       return;
     }
@@ -263,11 +339,41 @@ function Register() {
             {error && <div className="form-error">{error}</div>}
             {success && (
               <div className="form-success">
-                {successMessage || "Account created successfully. Redirecting to sign in..."}
-                <div style={{ marginTop: 10 }}>
-                  <button type="button" className="toggle-btn" onClick={() => navigate("/login")}>
+                <div className="verification-card">
+                  <div className="verification-card__copy">
+                    <div>{successMessage || "Account created successfully. Please verify your email before signing in."}</div>
+                    <div className="verification-card__status">{verificationMessage}</div>
+                  </div>
+                  <div className="verification-card__actions">
+                  {verificationStatus === "verified" ? (
+                    <button type="button" className="verification-btn verification-btn--verified" disabled>
+                      <i className="fas fa-check-circle"></i>
+                      Verified email
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="verification-btn verification-btn--primary"
+                        onClick={handleResendVerification}
+                        disabled={verificationBusy}
+                      >
+                        {verificationBusy ? "Please wait..." : verificationStatus === "sent" ? "Resend verification link" : "Send verification link"}
+                      </button>
+                      <button
+                        type="button"
+                        className="verification-btn verification-btn--secondary"
+                        onClick={handleCheckVerification}
+                        disabled={verificationBusy}
+                      >
+                        I&apos;ve verified
+                      </button>
+                    </>
+                  )}
+                  <button type="button" className="verification-btn verification-btn--ghost" onClick={handleGoToSignIn}>
                     Go to Sign In
                   </button>
+                </div>
                 </div>
               </div>
             )}
@@ -341,16 +447,16 @@ function Register() {
                   </div>
                 </div>
                 <div className="form-group">
-                  <label htmlFor="address">House Number/Street</label>
+                  <label htmlFor="street">House Number/Street</label>
                   <input
                     type="text"
-                    id="address"
-                    name="address"
-                    value={formData.address}
+                    id="street"
+                    name="street"
+                    value={formData.street}
                     onChange={handleChange}
                     required
                     placeholder="Enter house number and street"
-                    className={errorFields.address ? "input-error" : ""}
+                    className={errorFields.street ? "input-error" : ""}
                   />
                 </div>
                 <div className="form-group">

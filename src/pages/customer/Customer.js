@@ -205,7 +205,7 @@ function Customer() {
 
   const contactLine = (profile?.phone || profile?.contact || "").trim();
   const addressLine = [
-    profile?.address,
+    profile?.street || profile?.address,
     profile?.barangay,
     profile?.landmark,
     profile?.municipality,
@@ -380,7 +380,7 @@ function Customer() {
             user?.city,
             user?.area,
             user?.location,
-            user?.address,
+            user?.street || user?.address,
             user?.province
           ]
             .filter(Boolean)
@@ -1269,7 +1269,6 @@ function Customer() {
 }
 
 export default Customer;
-
 
 
 

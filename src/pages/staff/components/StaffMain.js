@@ -28,6 +28,7 @@ function StaffMain({
   paymentMethodByRequestId,
   setPaymentMethodByRequestId,
   customerAvatarSeeds = {},
+  customerAddressById = {},
   handleRequestAction,
   handleComplete,
   handleCashPaymentReceived,
@@ -363,6 +364,52 @@ function StaffMain({
     if (key === "CASH_ON_HAND") return "Cash on Hand";
     return value ? String(value) : "--";
   };
+  const getCustomerAddressFallback = React.useCallback(
+    (req) => {
+      const customerId = String(req?.householderId || req?.customerId || "").trim();
+      return customerId ? customerAddressById?.[customerId] || {} : {};
+    },
+    [customerAddressById]
+  );
+  const getRequestStreet = React.useCallback(
+    (req) => {
+      const fallback = getCustomerAddressFallback(req);
+      return String(req?.street || req?.address || fallback?.street || fallback?.address || "").trim();
+    },
+    [getCustomerAddressFallback]
+  );
+  const getRequestBarangay = React.useCallback(
+    (req) => {
+      const fallback = getCustomerAddressFallback(req);
+      return String(req?.barangay || fallback?.barangay || "").trim();
+    },
+    [getCustomerAddressFallback]
+  );
+  const getRequestLandmark = React.useCallback(
+    (req) => {
+      const fallback = getCustomerAddressFallback(req);
+      return String(req?.landmark || fallback?.landmark || "").trim();
+    },
+    [getCustomerAddressFallback]
+  );
+  const getRequestAddressSummary = React.useCallback(
+    (req) => {
+      const street = getRequestStreet(req);
+      const barangay = getRequestBarangay(req);
+      const landmark = getRequestLandmark(req);
+      const parts = [
+        street ? `${street}` : "",
+        barangay ? `${barangay}` : "",
+        landmark ? `${landmark}` : "",
+        "Dagupan City",
+        "Pangasinan",
+        "Philippines"
+      ].filter(Boolean);
+      if (parts.length > 0) return parts.join(", ");
+      return String(req?.location || "").trim() || "--";
+    },
+    [getRequestStreet, getRequestBarangay, getRequestLandmark]
+  );
   const normalizeSearch = (value) => String(value || "").toLowerCase().trim();
   const matchesSearch = (req, query) => {
     if (!query) return true;
@@ -371,6 +418,9 @@ function StaffMain({
       req?.service,
       req?.householderName,
       req?.customer,
+      req?.street,
+      req?.barangay,
+      req?.landmark,
       req?.location,
       req?.address,
       req?.requestId,
@@ -379,6 +429,16 @@ function StaffMain({
       .map((v) => normalizeSearch(v))
       .join(" ");
     return haystack.includes(query);
+  };
+  const getServiceSummary = (req) => {
+    const serviceList = Array.isArray(req?.serviceTypes)
+      ? req.serviceTypes
+      : String(req?.serviceType || req?.service || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+    const baseServiceLabel = serviceList[0] || "Service request";
+    return serviceList.length > 1 ? `${baseServiceLabel} etc...` : baseServiceLabel;
   };
 
   React.useEffect(() => {
@@ -402,8 +462,8 @@ function StaffMain({
       })
       .map((r) => {
         const completedAt = r.completedAt || r.updatedAt || r.createdAt || "";
-        const serviceLabel = r.serviceType || r.service || "Service";
-        const location = r.location || r.address || "";
+        const serviceLabel = getServiceSummary(r);
+        const location = getRequestAddressSummary(r);
         const job = location ? `${serviceLabel} - ${location}` : serviceLabel;
         const total =
           typeof r.totalPrice === "number" && Number.isFinite(r.totalPrice) && r.totalPrice > 0
@@ -421,7 +481,7 @@ function StaffMain({
           };
       });
     return list.sort((a, b) => (Number(b.completedAt || 0) || 0) - (Number(a.completedAt || 0) || 0));
-  }, [requests, formatWhenShort]);
+  }, [requests, formatWhenShort, getRequestAddressSummary, getServiceSummary]);
 
   const archivedHistoryList = React.useMemo(() => {
     return Object.entries(archivedHistoryMap || {})
@@ -595,16 +655,6 @@ function StaffMain({
   const isCashOnHand = (req) => getPaymentMethodKey(req) === "CASH_ON_HAND";
   const isCashReserved = (req) => isCashOnHand(req) && getPaymentStatusKey(req) === "RESERVED";
   const isPaid = (req) => getPaymentStatusKey(req) === "PAID" || Boolean(req?.paidAt);
-  const getServiceSummary = (req) => {
-    const serviceList = Array.isArray(req?.serviceTypes)
-      ? req.serviceTypes
-      : String(req?.serviceType || req?.service || "")
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean);
-    const baseServiceLabel = serviceList[0] || "Service request";
-    return serviceList.length > 1 ? `${baseServiceLabel} etc...` : baseServiceLabel;
-  };
   const canSeeRequest = (req) => {
     if (!isHousekeeper) return true;
     const assignedId = String(req?.housekeeperId || "").trim();
@@ -828,6 +878,10 @@ function StaffMain({
     getStatusLower,
     getCustomerAvatar,
     getServiceSummary,
+    getRequestStreet,
+    getRequestBarangay,
+    getRequestLandmark,
+    getRequestAddressSummary,
     formatSchedule,
     getPaymentStatusKey,
     getPaymentMethodKey,
@@ -1281,7 +1335,7 @@ function StaffMain({
                                 <div>
                                   <strong>{serviceLabel}</strong>
                                   <p className="muted small">
-                                    {customerName} - {r.location || "Location"}
+                                    {customerName}
                                   </p>
                                   {timeLabel && <p className="tiny muted">{timeLabel}</p>}
                                 </div>
@@ -1636,7 +1690,7 @@ function StaffMain({
                 </div>
                 <div>
                   <small>Address</small>
-                  <strong>{activeRequest.location || activeRequest.address || "--"}</strong>
+                  <strong>{getRequestAddressSummary(activeRequest)}</strong>
                 </div>
                 <div>
                   <small>Payment</small>

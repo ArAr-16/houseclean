@@ -134,7 +134,7 @@ function CustomerSettingsInner() {
       lastName: String(ctx.profile?.lastName || "").trim() || fallbackLast,
       phone: String(ctx.profile?.phone || ctx.profile?.contact || ""),
       location: String(ctx.profile?.location || ""),
-      address: String(ctx.profile?.address || ""),
+      address: String(ctx.profile?.street || ctx.profile?.address || ""),
       barangay: String(ctx.profile?.barangay || ""),
       municipality: DEFAULT_CITY,
       province: DEFAULT_COUNTRY,
@@ -175,6 +175,7 @@ function CustomerSettingsInner() {
       ]
         .filter(Boolean)
         .join(", "),
+      street: String(form.address || "").trim(),
       address: String(form.address || "").trim(),
       barangay: String(form.barangay || "").trim(),
       municipality: DEFAULT_CITY,

@@ -57,6 +57,7 @@ function Staff({
   const [attendanceEntries, setAttendanceEntries] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(true);
   const [customerAvatarSeeds, setCustomerAvatarSeeds] = useState({});
+  const [customerAddressById, setCustomerAddressById] = useState({});
   const [staffProfileForm, setStaffProfileForm] = useState(null);
   const [staffProfileErrors, setStaffProfileErrors] = useState({});
   const [staffProfileSaving, setStaffProfileSaving] = useState(false);
@@ -206,7 +207,7 @@ function Staff({
       lastName: String(data?.lastName || lastFromName || "").trim(),
       email: String(data?.email || auth.currentUser?.email || "").trim(),
       contact: String(data?.contact || data?.phone || "").trim(),
-      address: String(data?.address || "").trim(),
+      address: String(data?.street || data?.address || "").trim(),
       barangay: String(data?.barangay || "").trim(),
       landmark: String(data?.landmark || "").trim(),
       municipality: DEFAULT_CITY,
@@ -312,6 +313,7 @@ function Staff({
       fullName: `${staffProfileForm.firstName.trim()} ${staffProfileForm.lastName.trim()}`.trim(),
       email: staffProfileForm.email.trim(),
       contact: normalizePhone(staffProfileForm.contact),
+      street: staffProfileForm.address.trim(),
       address: staffProfileForm.address.trim(),
       barangay: String(staffProfileForm.barangay || "").trim(),
       landmark: String(staffProfileForm.landmark || "").trim(),
@@ -795,6 +797,7 @@ function Staff({
   useEffect(() => {
     if (!customerIds.length) {
       setCustomerAvatarSeeds({});
+      setCustomerAddressById({});
       return;
     }
     const usersRef = rtdbRef(rtdb, "Users");
@@ -802,16 +805,41 @@ function Staff({
       usersRef,
       (snap) => {
         const val = snap.val() || {};
-        const next = {};
+        const nextSeeds = {};
+        const nextAddresses = {};
         customerIds.forEach((id) => {
-          if (val[id]?.avatarSeed) next[id] = String(val[id].avatarSeed);
+          if (val[id]?.avatarSeed) nextSeeds[id] = String(val[id].avatarSeed);
+          nextAddresses[id] = {
+            street: String(val[id]?.street || "").trim(),
+            address: String(val[id]?.address || "").trim(),
+            barangay: String(val[id]?.barangay || "").trim(),
+            landmark: String(val[id]?.landmark || "").trim()
+          };
         });
-        setCustomerAvatarSeeds(next);
+        setCustomerAvatarSeeds(nextSeeds);
+        setCustomerAddressById(nextAddresses);
       },
-      () => setCustomerAvatarSeeds({})
+      () => {
+        setCustomerAvatarSeeds({});
+        setCustomerAddressById({});
+      }
     );
     return () => stop();
   }, [customerIds.join("|")]);
+
+  const hydratedRequests = useMemo(() => {
+    return (requests || []).map((req) => {
+      const customerId = String(req?.householderId || req?.customerId || "").trim();
+      const fallback = customerId ? customerAddressById?.[customerId] || {} : {};
+      return {
+        ...req,
+        street: String(req?.street || fallback?.street || fallback?.address || "").trim(),
+        address: String(req?.address || req?.street || fallback?.street || fallback?.address || "").trim(),
+        barangay: String(req?.barangay || fallback?.barangay || "").trim(),
+        landmark: String(req?.landmark || fallback?.landmark || "").trim()
+      };
+    });
+  }, [requests, customerAddressById]);
 
   return (
     <div className="staff-shell neo">
@@ -852,7 +880,7 @@ function Staff({
           ratingDisplay={ratingDisplay}
           tasks={tasks}
           completedTasks={completedTasks}
-          requests={requests}
+          requests={hydratedRequests}
           requestsLoading={requestsLoading}
           isHousekeeper={isHousekeeper}
           isStaffManager={isStaffManager}
@@ -861,6 +889,7 @@ function Staff({
           paymentMethodByRequestId={paymentMethodByRequestId}
           setPaymentMethodByRequestId={setPaymentMethodByRequestId}
           customerAvatarSeeds={customerAvatarSeeds}
+          customerAddressById={customerAddressById}
           attendanceEntries={attendanceEntries}
           attendanceLoading={attendanceLoading}
           handleRequestAction={handleRequestAction}

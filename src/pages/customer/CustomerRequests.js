@@ -294,7 +294,7 @@ function CustomerRequestsInner({
   };
 
   const addressLine = [
-    ctx.profile?.address,
+    ctx.profile?.street || ctx.profile?.address,
     ctx.profile?.barangay,
     ctx.profile?.municipality,
     ctx.profile?.province
@@ -759,6 +759,7 @@ function CustomerRequestsInner({
                 r.requestId,
                 r.id,
                 r.location,
+                r.street,
                 r.address
               ]
                 .filter(Boolean)
@@ -843,6 +844,7 @@ function CustomerRequestsInner({
                 r.requestId,
                 r.id,
                 r.location,
+                r.street,
                 r.address
               ]
                 .filter(Boolean)
@@ -987,7 +989,7 @@ function CustomerRequestsInner({
               </div>
               <div>
                 <small>Address</small>
-                <strong>{activeRequest.location || activeRequest.address || addressLine || "--"}</strong>
+                <strong>{activeRequest.location || activeRequest.street || activeRequest.address || addressLine || "--"}</strong>
               </div>
               <div>
                 <small>Staff</small>
@@ -1293,5 +1295,4 @@ function CustomerRequestsInner({
     </>
   );
 }
-
 

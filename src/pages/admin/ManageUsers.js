@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import "../../components/Admin.css";
 import { rtdb, auth, secondaryAuth, functions } from "../../firebase";
-import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, sendEmailVerification } from "firebase/auth";
 import { ref, onValue, set, update as rtdbUpdate, remove, serverTimestamp } from "firebase/database";
 import { httpsCallable } from "firebase/functions";
 import { logAdminHistory } from "../../utils/adminHistory";
@@ -489,6 +489,14 @@ function ManageUsers() {
       const fullName = form.fullName.trim() || `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
       if (fullName) {
         await updateProfile(cred.user, { displayName: fullName });
+      }
+      try {
+        await sendEmailVerification(cred.user, {
+          url: `${window.location.origin}/login`,
+          handleCodeInApp: false
+        });
+      } catch (verificationErr) {
+        console.warn("Verification email send skipped:", verificationErr?.code || verificationErr?.message);
       }
       const uid = cred.user.uid;
       const finalSkills =

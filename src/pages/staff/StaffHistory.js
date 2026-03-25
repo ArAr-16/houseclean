@@ -77,7 +77,7 @@ function StaffHistoryContent({
     visibleRequests.forEach((req) => {
       const id = String(req?.id || req?.requestId || "");
       const serviceLabel = req?.serviceType || req?.service || "Service";
-      const location = req?.location || req?.address || "";
+      const location = req?.location || req?.street || req?.address || "";
       const job = location ? `${serviceLabel} • ${location}` : serviceLabel;
 
       const createdAt = Number(req?.createdAt || req?.timestamp || 0) || 0;
