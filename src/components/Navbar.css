@@ -94,27 +94,174 @@ html.dark-mode .navbar {
   gap: 2rem;
   font-weight: bold;
   margin-left: auto;
-  }
+}
 .nav-links li a {
   color: white;     
-    text-decoration: none;
-    transition: color 0.3s ease;
+  text-decoration: none;
+  transition: color 0.3s ease;
 }
 .nav-links li a:hover {
   color: #f1b856; 
 }
 
 .nav-links li a.active {
-    color: #f1b856; 
-    font-weight: bolder; }
+  color: #f1b856; 
+  font-weight: bolder; 
+}
 
-/* Mobile view */ @media (max-width: 768px) { 
-.nav-links { flex-direction: column; 
-    gap: 1rem; margin-left: 0; 
-    width: 100%; 
-    text-align: center; } 
-.login-btn { 
-    margin-top: 1rem; 
-} }
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.hamburger {
+  display: none;
+  flex-direction: column;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  gap: 5px;
+}
+
+.hamburger span {
+  width: 25px;
+  height: 3px;
+  background-color: white;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+/* ========== DARK MODE STYLES ========== */
+
+html.dark-mode .hamburger span {
+  background-color: #ffffff;
+}
+
+html.dark-mode .nav-links {
+  background: #0f1729;
+  border-bottom: 2px solid #13829f;
+}
+
+html.dark-mode .nav-links li {
+  border-bottom: 1px solid rgba(19, 130, 159, 0.3);
+}
+
+html.dark-mode .nav-links li a {
+  color: #e0e7ff;
+  transition: color 0.3s ease;
+}
+
+html.dark-mode .nav-links li a:hover {
+  color: #f1b856;
+}
+
+html.dark-mode .nav-links li a.active {
+  color: #f1b856;
+}
+
+html.dark-mode .cssbuttons-io {
+  background: linear-gradient(to right, #13829f, #0f1729);
+  box-shadow: 0 4px 12px rgba(19, 130, 159, 0.3);
+}
+
+html.dark-mode .cssbuttons-io:hover {
+  box-shadow: 0 6px 16px rgba(19, 130, 159, 0.4);
+}
+
+/* Tablet and smaller */
+@media (max-width: 1024px) {
+  .logo-img {
+    width: 10rem;
+  }
+  .cssbuttons-io {
+    margin-right: 1rem;
+    margin-left: 0.5rem;
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+}
+
+/* Mobile view */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 10px 12px;
+    min-height: 56px;
+    flex-wrap: nowrap;
+  }
+  .Logo {
+    flex: 0 0 auto;
+  }
+  .logo-img {
+    width: 8rem;
+    height: 32px;
+  }
+  .nav-links {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    background: #333a5b;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 12px 0;
+    width: 100%;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    z-index: 99;
+    border-bottom: 2px solid #13829f;
+  }
+  .nav-links.active {
+    max-height: 300px;
+  }
+  .nav-links li {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .nav-links li a {
+    display: block;
+    padding: 12px 20px;
+  }
+  .nav-actions {
+    margin-left: auto;
+    gap: 0.5rem;
+  }
+  .cssbuttons-io {
+    margin: 0;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .cssbuttons-io span {
+    padding: 0.4em 1em;
+  }
+  .hamburger {
+    display: flex;
+  }
+}
+
+/* Small mobile */
+@media (max-width: 480px) {
+  .navbar {
+    padding: 8px 8px;
+  }
+  .logo-img {
+    width: 6rem;
+    height: 28px;
+    margin-left: 0.5rem;
+  }
+  .cssbuttons-io {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  .cssbuttons-io span {
+    padding: 0.3em 0.8em;
+  }
+  .hamburger span {
+    width: 22px;
+    height: 2.5px;
+  }
+}
 
 /*end of Login button*/

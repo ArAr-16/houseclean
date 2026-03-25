@@ -729,9 +729,36 @@ html.dark-mode .toggle-password:hover {
   filter: drop-shadow(0 10px 26px rgba(0, 0, 0, 0.35));
 }
 
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .login-page {
+    padding: 15px;
+  }
+  .login-container {
+    max-width: 850px;
+  }
+  .login-form {
+    padding: 35px;
+  }
+  .form-header h2 {
+    font-size: 2.2em;
+  }
+  .login-decoration {
+    padding: 35px;
+  }
+  .decoration-content h3 {
+    font-size: 2.2em;
+  }
+}
+
 @media (max-width: 768px) {
+  .login-page {
+    padding: 10px;
+  }
   .login-container {
     flex-direction: column;
+    max-width: 100%;
+    border-radius: 15px;
   }
 
   .login-container.signup-only {
@@ -739,24 +766,237 @@ html.dark-mode .toggle-password:hover {
   }
 
   .login-form {
-    padding: 30px 20px;
+    padding: 25px 20px;
+    flex: 1;
   }
 
   .login-decoration {
-    padding: 30px 20px;
+    padding: 25px 20px;
+    min-height: 200px;
   }
 
   .form-header h2 {
-    font-size: 2em;
+    font-size: 1.8em;
+    margin-bottom: 8px;
+  }
+
+  .form-header p {
+    font-size: 0.95em;
   }
 
   .decoration-content h3 {
-    font-size: 2em;
+    font-size: 1.8em;
+    margin-bottom: 10px;
+  }
+
+  .decoration-content p {
+    font-size: 1.05em;
+    margin-bottom: 20px;
+  }
+
+  .decoration-icons {
+    font-size: 2.5em;
+    gap: 15px;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    font-size: 0.95em;
+  }
+
+  .form-group input,
+  .form-group select,
+  #landmark,
+  #address {
+    padding: 12px 15px;
+    font-size: 16px;
+  }
+
+  .password-wrapper input {
+    padding-right: 70px;
+  }
+
+  .toggle-password {
+    padding: 6px 10px;
+    font-size: 0.85em;
+    right: 8px;
   }
 
   .location-grid {
     grid-template-columns: 1fr;
-    gap: 15px;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .location-grid label {
+    font-size: 0.9em;
+  }
+
+  .submit-btn {
+    padding: 12px;
+    font-size: 1em;
+  }
+
+  .form-footer p {
+    font-size: 0.9em;
+  }
+
+  .toggle-btn {
+    font-size: 0.95em;
+  }
+
+  .login-options {
+    flex-direction: column;
+    gap: 10px;
+    margin: -4px 0 16px;
+  }
+
+  .remember-me {
+    font-size: 0.9em;
+  }
+
+  .forgot-password-btn {
+    font-size: 0.9em;
+  }
+
+  .login-modal__panel {
+    width: 95%;
+    padding: 18px;
+  }
+
+  .login-modal__header h3 {
+    font-size: 1.25rem;
+  }
+
+  .login-modal__body input {
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  .login-modal__actions {
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-page {
+    padding: 8px;
+  }
+
+  .login-container {
+    border-radius: 12px;
+    max-width: 100%;
+  }
+
+  .login-form {
+    padding: 20px 15px;
+  }
+
+  .login-decoration {
+    padding: 20px 15px;
+    min-height: 150px;
+  }
+
+  .form-header h2 {
+    font-size: 1.5em;
+  }
+
+  .form-header p {
+    font-size: 0.9em;
+  }
+
+  .decoration-content h3 {
+    font-size: 1.5em;
+  }
+
+  .decoration-content p {
+    font-size: 0.95em;
+  }
+
+  .decoration-icons {
+    font-size: 2em;
+    gap: 10px;
+  }
+
+  .form-group {
+    margin-bottom: 14px;
+  }
+
+  .form-group label {
+    font-size: 0.9em;
+    margin-bottom: 4px;
+  }
+
+  .form-group input,
+  .form-group select,
+  #landmark,
+  #address {
+    padding: 10px 12px;
+    font-size: 16px;
+    border-radius: 8px;
+  }
+
+  .password-wrapper input {
+    padding-right: 60px;
+  }
+
+  .toggle-password {
+    padding: 4px 8px;
+    font-size: 0.75em;
+    width: auto;
+    height: auto;
+  }
+
+  .location-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .submit-btn {
+    padding: 10px;
+    font-size: 0.95em;
+  }
+
+  .back-button {
+    margin-left: -20px;
+    margin-top: -20px;
+  }
+
+  .back-btn {
+    font-size: 11px;
+  }
+
+  .login-modal {
+    padding: 10px;
+  }
+
+  .login-modal__panel {
+    width: 100%;
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .login-modal__header h3 {
+    font-size: 1.15rem;
+  }
+
+  .login-modal__body input {
+    padding: 10px 12px;
+    font-size: 16px;
+  }
+
+  .login-modal__actions {
+    flex-direction: column;
+  }
+
+  .login-modal__primary,
+  .login-modal__secondary {
+    width: 100%;
+    padding: 10px;
+    font-size: 0.95em;
   }
 }
 

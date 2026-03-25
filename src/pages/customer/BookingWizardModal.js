@@ -706,29 +706,12 @@ function BookingWizardModal({
       setAvailabilityError("Please choose a valid schedule.");
       return null;
     }
-    const serviceKeys = Array.isArray(booking.serviceTypes)
-      ? booking.serviceTypes.map((s) => normalizeText(s)).filter(Boolean)
-      : [];
     const isActiveStatus = (status) => ["pending", "confirmed", "accepted"].includes(normalizeText(status));
 
     const targetDate = new Date(booking.startAt);
     const targetDayIndex = Number.isFinite(targetDate.getTime()) ? targetDate.getDay() : null;
 
     const results = (housekeepers || []).map((hk) => {
-      const skills = Array.isArray(hk.skills) ? hk.skills : [];
-      const preferredService = normalizeText(hk.preferredService);
-      const skillsMatch =
-        serviceKeys.length === 0
-          ? true
-          : skills.length === 0
-            ? true
-            : skills.some((s) => serviceKeys.some((key) => normalizeText(s).includes(key) || key.includes(normalizeText(s))));
-      const preferredMatch =
-        serviceKeys.length === 0 || !preferredService
-          ? true
-          : serviceKeys.some((key) => preferredService.includes(key) || key.includes(preferredService));
-      const matchesService = skillsMatch || preferredMatch;
-
       const requestsToday = (serviceRequests || []).filter((req) => {
         const reqStaffId = String(req.housekeeperId || "").trim();
         if (!reqStaffId || reqStaffId !== hk.id) return false;
@@ -757,11 +740,10 @@ function BookingWizardModal({
       const timeOk = staffStart == null || staffEnd == null ? true : target.minutes >= staffStart && target.minutes <= staffEnd;
       const matchesAvailability = dayOk && timeOk;
 
-      const available = matchesService && matchesAvailability && !hasSameDayBooking;
+      const available = matchesAvailability && !hasSameDayBooking;
       return {
         ...hk,
         available,
-        matchesService,
         matchesAvailability,
         hasSameDayBooking,
         bookingsToday: requestsToday.length
@@ -1495,11 +1477,9 @@ function BookingWizardModal({
                                   .map((hk) => {
                                 const reason = !hk.matchesAvailability
                                   ? "Availability mismatch"
-                                  : !hk.matchesService
-                                    ? "Service mismatch"
-                                    : hk.hasSameDayBooking
+                                  : hk.hasSameDayBooking
                                       ? "Already booked that day"
-                                        : "Unavailable";
+                                      : "Unavailable";
                                     return (
                                       <div key={hk.id} className="preferred-card hk-card unavailable">
                                     <div className="preferred-card__top centered">
@@ -1705,7 +1685,7 @@ function BookingWizardModal({
             </div>
             <h4>Confirm Static QR Payment</h4>
             <p>
-              Please complete the payment first after submitting your request. housekeeper can only
+              Please complete the payment first after submitting your request. Housekeeper can only
               accept your booking once your payment is marked as paid.
             </p>
             <div className="customer-modal__actions">
@@ -1783,7 +1763,9 @@ function BookingWizardModal({
                 <>
                   <div className="profile-chip-row">
                     {activeProfile.rating > 0 && (
-                      <span className="pill soft blue">Rating {activeProfile.rating.toFixed(1)}</span>
+                      <span className="star-row">
+                        {renderStarRating(activeProfile.rating)} ({activeProfile.rating.toFixed(1)} rating)
+                      </span>
                     )}
                     {activeProfile.previousPosition && (
                       <span className="pill soft green">{activeProfile.previousPosition}</span>

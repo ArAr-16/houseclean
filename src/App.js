@@ -34,6 +34,7 @@ import Notifications from "./pages/admin/Notifications";
 import { auth } from "./firebase";
 import { resolveAdminStatus } from "./utils/adminRole";
 import "./App.css";
+import "./styles/DarkModeEnhancements.css";
 
 function AppContent() {
   const location = useLocation();

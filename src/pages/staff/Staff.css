@@ -142,6 +142,10 @@
 .status-dot.pending { background: #f59e0b; }
 .status-dot.disabled { background: #ef4444; }
 
+html.dark-mode .status-dot.active { background: #4ade80; box-shadow: 0 4px 8px rgba(74, 222, 128, 0.3); }
+html.dark-mode .status-dot.pending { background: #fbbf24; box-shadow: 0 4px 8px rgba(251, 191, 36, 0.3); }
+html.dark-mode .status-dot.disabled { background: #f87171; box-shadow: 0 4px 8px rgba(248, 113, 113, 0.3); }
+
 .guest-actions {
   display: flex;
   flex-direction: column;
@@ -225,6 +229,10 @@ html.dark-mode .staff-profile-popover .popover-header { border-color: #2d3656; }
 .dot-overlay.active { background: #22c55e; }
 .dot-overlay.pending { background: #f59e0b; }
 .dot-overlay.disabled { background: #ef4444; }
+
+html.dark-mode .dot-overlay.active { background: #4ade80; box-shadow: 0 4px 8px rgba(74, 222, 128, 0.3); }
+html.dark-mode .dot-overlay.pending { background: #fbbf24; box-shadow: 0 4px 8px rgba(251, 191, 36, 0.3); }
+html.dark-mode .dot-overlay.disabled { background: #f87171; box-shadow: 0 4px 8px rgba(248, 113, 113, 0.3); }
 
 .popover-header h4 {
   margin: 0;
@@ -1690,6 +1698,13 @@ html.dark-mode .icon-chip.danger { background: #3b1f2b; border-color: #5b1021; c
   color: #1d4ed8;
 }
 
+html.dark-mode .tab-row .btn.active {
+  background: rgba(19, 130, 159, 0.25);
+  border-color: var(--accent-primary, #13829f);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(19, 130, 159, 0.25);
+}
+
 .settings-grid-lite {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -2695,6 +2710,11 @@ html.dark-mode .clock-indicator.off {
 .avatar-chip.active {
   border-color: rgba(47, 118, 255, 0.5);
   background: #eef4ff;
+}
+
+html.dark-mode .avatar-chip.active {
+  border-color: rgba(19, 130, 159, 0.5);
+  background: rgba(19, 130, 159, 0.2);
 }
 
 .avatar-thumb {

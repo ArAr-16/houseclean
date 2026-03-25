@@ -58,3 +58,62 @@ html.dark-mode .about-us p {
 html.dark-mode .about-us .brand {
   color: var(--accent-primary);
 }
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .about-us {
+    margin: 2rem auto;
+    padding: 1.5rem;
+    max-width: 90%;
+  }
+  .about-us h2 {
+    font-size: 1.7rem;
+  }
+  .about-us p {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .about-us {
+    max-width: 95%;
+    margin: 1.5rem auto;
+    padding: 1.3rem;
+  }
+  .about-us h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .about-us p {
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+  }
+  .about-us .brand {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .about-us {
+    max-width: 100%;
+    margin: 1rem auto;
+    padding: 1rem;
+    border-left: 5px solid #b95353;
+    border-radius: 4px;
+  }
+  .about-us h2 {
+    font-size: 1.3rem;
+    margin-bottom: 0.8rem;
+  }
+  .about-us h2::after {
+    width: 40px;
+    height: 3px;
+  }
+  .about-us p {
+    font-size: 0.9rem;
+    margin-bottom: 0.8rem;
+  }
+  .about-us .brand {
+    font-size: 1rem;
+  }
+}

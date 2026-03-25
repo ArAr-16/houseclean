@@ -72,6 +72,8 @@ function History() {
   const [users, setUsers] = useState([]);
   const [requests, setRequests] = useState([]);
   const [refundRequests, setRefundRequests] = useState([]);
+  const [activityPage, setActivityPage] = useState(0);
+  const [historyPage, setHistoryPage] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -373,7 +375,7 @@ function History() {
                   </thead>
                   <tbody>
                     {filtered.length ? (
-                      filtered.map((h) => (
+                      filtered.slice(historyPage * 10, (historyPage + 1) * 10).map((h) => (
                         <tr key={h.id}>
                           <td className="nowrap">{formatWhen(h)}</td>
                           <td>{h.action || h.message || "Activity"}</td>
@@ -396,7 +398,7 @@ function History() {
                 </table>
               </div>
               <div className="history-timeline">
-                {filtered.map((h) => (
+                {filtered.slice(historyPage * 10, (historyPage + 1) * 10).map((h) => (
                   <div key={h.id} className={`history-item history-${h.status}`}>
                     <div className="history-marker">
                       <span className="history-icon" style={{ color: "var(--admin-accent, #f1b856)" }}>{getActivityIcon(h.type)}</span>
@@ -416,6 +418,27 @@ function History() {
                 {!filtered.length && <p className="muted small">No activity yet.</p>}
               </div>
             </div>
+            {filtered.length > 10 && (
+              <div className="pagination-controls">
+                <button
+                  className="btn pill ghost"
+                  onClick={() => setHistoryPage(Math.max(0, historyPage - 1))}
+                  disabled={historyPage === 0}
+                >
+                  <i className="fas fa-chevron-left"></i> Previous
+                </button>
+                <div className="pagination-info">
+                  <span>{historyPage + 1} of {Math.ceil(filtered.length / 10)}</span>
+                </div>
+                <button
+                  className="btn pill ghost"
+                  onClick={() => setHistoryPage(Math.min(Math.ceil(filtered.length / 10) - 1, historyPage + 1))}
+                  disabled={historyPage >= Math.ceil(filtered.length / 10) - 1}
+                >
+                  Next <i className="fas fa-chevron-right"></i>
+                </button>
+              </div>
+            )}
             <div className="history-actions">
               <button className="btn primary" onClick={handleExportCsv}>
                 <i className="fas fa-file-export"></i> Export CSV
@@ -436,18 +459,41 @@ function History() {
                 {recentActivity.length === 0 ? (
                   <p className="muted small">No recent activity found.</p>
                 ) : (
-                  recentActivity.map((item) => (
-                    <div key={item.id} className="admin-activity-row">
-                      <div className={`admin-activity-icon ${item.type}`}>
-                        <i className={`fas ${item.type === "user" ? "fa-user-plus" : "fa-receipt"}`}></i>
+                  <>
+                    {recentActivity.slice(activityPage * 5, (activityPage + 1) * 5).map((item) => (
+                      <div key={item.id} className="admin-activity-row">
+                        <div className={`admin-activity-icon ${item.type}`}>
+                          <i className={`fas ${item.type === "user" ? "fa-user-plus" : "fa-receipt"}`}></i>
+                        </div>
+                        <div className="admin-activity-copy">
+                          <strong>{item.title}</strong>
+                          <p>{item.detail}</p>
+                        </div>
+                        <span className="admin-activity-time">{formatWhenShort(item.when)}</span>
                       </div>
-                      <div className="admin-activity-copy">
-                        <strong>{item.title}</strong>
-                        <p>{item.detail}</p>
+                    ))}
+                    {recentActivity.length > 5 && (
+                      <div className="pagination-controls">
+                        <button
+                          className="btn pill ghost"
+                          onClick={() => setActivityPage(Math.max(0, activityPage - 1))}
+                          disabled={activityPage === 0}
+                        >
+                          <i className="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <div className="pagination-info">
+                          <span>{activityPage + 1} of {Math.ceil(recentActivity.length / 5)}</span>
+                        </div>
+                        <button
+                          className="btn pill ghost"
+                          onClick={() => setActivityPage(Math.min(Math.ceil(recentActivity.length / 5) - 1, activityPage + 1))}
+                          disabled={activityPage >= Math.ceil(recentActivity.length / 5) - 1}
+                        >
+                          Next <i className="fas fa-chevron-right"></i>
+                        </button>
                       </div>
-                      <span className="admin-activity-time">{formatWhenShort(item.when)}</span>
-                    </div>
-                  ))
+                    )}
+                  </>
                 )}
               </div>
             </div>
